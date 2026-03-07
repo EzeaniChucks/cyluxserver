@@ -8,7 +8,6 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { ParentEntity } from './Parent';
-import { PlanId } from '../config/plans';
 
 @Entity('subscription_entity')
 export class SubscriptionEntity {
@@ -22,13 +21,17 @@ export class SubscriptionEntity {
   @JoinColumn({ name: 'parentId' })
   parent: ParentEntity;
 
-  /** Plan slug: trial | basic | premium | premium_plus | enterprise */
+  /** Plan slug — matches planId in plan_config_entity. 'trial' is server-managed. */
   @Column({ type: 'varchar', default: 'trial' })
-  plan: PlanId;
+  plan: string;
 
-  /** Stripe/internal subscription status: trialing | active | past_due | cancelled | incomplete */
+  /** Stripe/internal status: trialing | active | past_due | cancelled | incomplete */
   @Column({ type: 'varchar', default: 'trialing' })
   status: string;
+
+  /** 'monthly' or 'annual' — determined at checkout from the Stripe Price ID used. */
+  @Column({ type: 'varchar', default: 'monthly' })
+  billingInterval: 'monthly' | 'annual';
 
   /** When the 7-day server-managed trial expires (null for paid plans). */
   @Column({ type: 'timestamp', nullable: true })

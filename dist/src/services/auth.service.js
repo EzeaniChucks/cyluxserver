@@ -64,6 +64,7 @@ class AuthService {
     }
     register(data) {
         return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b, _c, _d, _e;
             if (!data.email || !data.name || !data.password) {
                 throw new Error("All registration fields are required");
             }
@@ -85,7 +86,7 @@ class AuthService {
                     if (result === null || result === void 0 ? void 0 : result.valid)
                         validatedReferralCode = data.referralCode.toUpperCase();
                 }
-                catch (_a) {
+                catch (_f) {
                     // Non-fatal — registration proceeds without referral
                 }
                 // If not an influencer code, try as a parent referral code
@@ -97,7 +98,7 @@ class AuthService {
                             parentReferrerId = result.referrerId;
                         }
                     }
-                    catch (_b) {
+                    catch (_g) {
                         // Non-fatal
                     }
                 }
@@ -108,6 +109,11 @@ class AuthService {
                 name: data.name.trim(),
                 passwordHash,
                 referralCode: validatedReferralCode,
+                country: (_a = data.country) !== null && _a !== void 0 ? _a : null,
+                currency: (_b = data.currency) !== null && _b !== void 0 ? _b : 'usd',
+                locale: (_c = data.locale) !== null && _c !== void 0 ? _c : null,
+                vpnFlagged: (_d = data.vpnFlagged) !== null && _d !== void 0 ? _d : false,
+                detectedVia: (_e = data.detectedVia) !== null && _e !== void 0 ? _e : null,
             });
             yield this.parentRepo.save(parent);
             // Create 7-day Premium trial subscription (no credit card required)
@@ -118,7 +124,7 @@ class AuthService {
                     const { influencerService } = yield Promise.resolve().then(() => __importStar(require('./influencer.service')));
                     yield influencerService.recordRegistration(validatedReferralCode, parent.id);
                 }
-                catch (_c) {
+                catch (_h) {
                     // Non-fatal
                 }
             }
@@ -128,7 +134,7 @@ class AuthService {
                     const { parentReferralService } = yield Promise.resolve().then(() => __importStar(require('./parentReferral.service')));
                     yield parentReferralService.recordRegistration(parentReferrerId, parent.id);
                 }
-                catch (_d) {
+                catch (_j) {
                     // Non-fatal
                 }
             }

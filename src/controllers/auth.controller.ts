@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
+import { geoService } from '../services/geo.service';
 import { ApiResponse } from '../utils/response';
 
 export class AuthController {
@@ -7,14 +8,27 @@ export class AuthController {
 
   register = async (req: any, res: any) => {
     try {
-      const { email, password, name, referralCode } = req.body;
+      const { email, password, name, referralCode, timezone, locale, simMcc } = req.body;
       if (!email || !password || !name) {
         return ApiResponse.error(res, 'Missing registration fields', 400);
       }
-      const result = await this.authService.register({ email, password, name, referralCode });
+      // Geo detection runs server-side — client signals are hints only;
+      // the actual IP (not client-supplied) is the authoritative source.
+      const geo = await geoService.detect(req, { timezone, locale, simMcc });
+      const result = await this.authService.register({ email, password, name, referralCode, ...geo });
       return ApiResponse.success(res, result, 'Account created successfully', 201);
     } catch (error: any) {
       return ApiResponse.error(res, error.message, 400);
+    }
+  };
+
+  detectLocale = async (req: any, res: any) => {
+    try {
+      const { timezone, locale, simMcc } = req.body;
+      const result = await geoService.detect(req, { timezone, locale, simMcc });
+      return ApiResponse.success(res, result, 'Locale detected');
+    } catch (error: any) {
+      return ApiResponse.error(res, error.message);
     }
   };
 

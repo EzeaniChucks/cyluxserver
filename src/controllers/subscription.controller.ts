@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { subscriptionService } from '../services/subscription.service';
-import { PLAN_LIMITS, getPlansForClient, getPlansForClientFromDb } from '../config/plans';
+import { getPlanConfig, getPlansForClient, getPlansForClientFromDb } from '../config/plans';
 import { ApiResponse } from '../utils/response';
 
 export class SubscriptionController {
@@ -22,16 +22,18 @@ export class SubscriptionController {
         return ApiResponse.error(res, 'Subscription not found', 404);
       }
       const effectivePlan = subscriptionService.getEffectivePlan(sub);
+      const features = effectivePlan ? await getPlanConfig(effectivePlan) : null;
       return ApiResponse.success(res, {
         id: sub.id,
         plan: sub.plan,
         status: sub.status,
+        billingInterval: sub.billingInterval,
         effectivePlan,
         trialEndsAt: sub.trialEndsAt,
         currentPeriodEnd: sub.currentPeriodEnd,
         cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
         hasStripeSubscription: !!sub.stripeSubscriptionId,
-        features: effectivePlan ? PLAN_LIMITS[effectivePlan] : null,
+        features,
       }, 'Subscription details');
     } catch (err: any) {
       return ApiResponse.error(res, err.message);
@@ -41,27 +43,20 @@ export class SubscriptionController {
   /** POST /api/subscription/checkout — authenticated parent */
   createCheckout = async (req: any, res: any) => {
     try {
-      const { priceId, promoCode } = req.body;
+      const { priceId, promoCode, currency } = req.body;
       if (!priceId || typeof priceId !== 'string') {
         return ApiResponse.error(res, 'priceId is required', 400);
       }
-
-      // Verify priceId belongs to a known plan
-      const knownPriceIds = Object.values(PLAN_LIMITS)
-        .map(p => p.priceId)
-        .filter(Boolean);
-      if (!knownPriceIds.includes(priceId)) {
-        return ApiResponse.error(res, 'Invalid plan selected', 400);
-      }
-
+      // Full validation (plan existence, isActive, contactSalesOnly) is done in the service
       const result = await subscriptionService.createStripeSubscription(
         req.user.id,
         priceId,
         promoCode ? String(promoCode) : undefined,
+        currency ? String(currency) : undefined,
       );
       return ApiResponse.success(res, result, 'Payment intent created');
     } catch (err: any) {
-      return ApiResponse.error(res, err.message);
+      return ApiResponse.error(res, err.message, 400);
     }
   };
 

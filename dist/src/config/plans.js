@@ -47,6 +47,11 @@ exports.getPlanConfig = getPlanConfig;
 exports.seedPlanConfigs = seedPlanConfigs;
 exports.getPlansForClientFromDb = getPlansForClientFromDb;
 exports.getPlansForClient = getPlansForClient;
+/**
+ * Hardcoded defaults — used only for first-boot seeding and as a
+ * last-resort fallback when the DB is unreachable.
+ * Source of truth after first boot is plan_config_entity in the DB.
+ */
 exports.PLAN_LIMITS = {
     trial: {
         name: 'Free Trial',
@@ -71,7 +76,8 @@ exports.PLAN_LIMITS = {
         smartTv: false,
         advancedReports: false,
         schoolDashboard: false,
-        priceId: process.env.STRIPE_PRICE_BASIC,
+        priceId: process.env.STRIPE_PRICE_BASIC_MONTHLY,
+        stripePriceIdAnnual: process.env.STRIPE_PRICE_BASIC_ANNUAL,
     },
     premium: {
         name: 'Premium',
@@ -84,7 +90,8 @@ exports.PLAN_LIMITS = {
         smartTv: false,
         advancedReports: false,
         schoolDashboard: false,
-        priceId: process.env.STRIPE_PRICE_PREMIUM,
+        priceId: process.env.STRIPE_PRICE_PREMIUM_MONTHLY,
+        stripePriceIdAnnual: process.env.STRIPE_PRICE_PREMIUM_ANNUAL,
     },
     premium_plus: {
         name: 'Premium Plus',
@@ -97,12 +104,13 @@ exports.PLAN_LIMITS = {
         smartTv: true,
         advancedReports: false,
         schoolDashboard: false,
-        priceId: process.env.STRIPE_PRICE_PREMIUM_PLUS,
+        priceId: process.env.STRIPE_PRICE_PREMIUM_PLUS_MONTHLY,
+        stripePriceIdAnnual: process.env.STRIPE_PRICE_PREMIUM_PLUS_ANNUAL,
     },
     enterprise: {
         name: 'Enterprise',
-        description: 'School dashboard + advanced reports',
-        price: 50.99,
+        description: 'School dashboard + advanced reports — contact us for pricing',
+        price: null,
         maxDevices: Infinity,
         maxGeofences: Infinity,
         vpnFiltering: true,
@@ -110,28 +118,29 @@ exports.PLAN_LIMITS = {
         smartTv: true,
         advancedReports: true,
         schoolDashboard: true,
-        priceId: process.env.STRIPE_PRICE_ENTERPRISE,
+        contactSalesOnly: true,
     },
 };
 /**
- * Returns a DB-overridden plan config for a given planId.
- * Falls back to hardcoded PLAN_LIMITS if no DB row exists.
- * Lazy import to avoid circular dependency with AppDataSource.
+ * Returns plan limits for a given planId.
+ * DB is always consulted first; hardcoded PLAN_LIMITS is a last-resort fallback.
+ * Intentionally does NOT filter by isActive — existing subscribers on a
+ * deactivated plan must still be able to resolve their limits.
  */
 function getPlanConfig(planId) {
     return __awaiter(this, void 0, void 0, function* () {
-        var _a, _b;
+        var _a, _b, _c, _d;
         try {
             const { AppDataSource } = yield Promise.resolve().then(() => __importStar(require('../database')));
             const { PlanConfigEntity } = yield Promise.resolve().then(() => __importStar(require('../entities/PlanConfig')));
             const repo = AppDataSource.getRepository(PlanConfigEntity);
-            const config = yield repo.findOne({ where: { planId, isActive: true } });
+            const config = yield repo.findOne({ where: { planId } });
             if (!config)
-                return exports.PLAN_LIMITS[planId];
+                return (_a = exports.PLAN_LIMITS[planId]) !== null && _a !== void 0 ? _a : exports.PLAN_LIMITS['trial'];
             return {
                 name: config.name,
                 description: config.description,
-                price: (_a = config.price) !== null && _a !== void 0 ? _a : exports.PLAN_LIMITS[planId].price,
+                price: config.price,
                 maxDevices: config.maxDevices === -1 ? Infinity : config.maxDevices,
                 maxGeofences: config.maxGeofences === -1 ? Infinity : config.maxGeofences,
                 vpnFiltering: config.vpnFiltering,
@@ -139,21 +148,23 @@ function getPlanConfig(planId) {
                 smartTv: config.smartTv,
                 advancedReports: config.advancedReports,
                 schoolDashboard: config.schoolDashboard,
-                priceId: (_b = config.stripePriceId) !== null && _b !== void 0 ? _b : exports.PLAN_LIMITS[planId].priceId,
+                priceId: (_b = config.stripePriceId) !== null && _b !== void 0 ? _b : undefined,
+                stripePriceIdAnnual: (_c = config.stripePriceIdAnnual) !== null && _c !== void 0 ? _c : undefined,
+                contactSalesOnly: config.contactSalesOnly,
             };
         }
-        catch (_c) {
-            return exports.PLAN_LIMITS[planId];
+        catch (_e) {
+            return (_d = exports.PLAN_LIMITS[planId]) !== null && _d !== void 0 ? _d : exports.PLAN_LIMITS['trial'];
         }
     });
 }
 /**
  * Seeds plan_config_entity from hardcoded defaults on first run.
- * No-op if rows already exist.
+ * No-op if rows already exist. After this, the admin portal owns the data.
  */
 function seedPlanConfigs() {
     return __awaiter(this, void 0, void 0, function* () {
-        var _a, _b;
+        var _a, _b, _c, _d;
         try {
             const { AppDataSource } = yield Promise.resolve().then(() => __importStar(require('../database')));
             const { PlanConfigEntity } = yield Promise.resolve().then(() => __importStar(require('../entities/PlanConfig')));
@@ -161,13 +172,12 @@ function seedPlanConfigs() {
             const existing = yield repo.count();
             if (existing > 0)
                 return;
-            const entries = Object.entries(exports.PLAN_LIMITS);
-            for (const [planId, plan] of entries) {
+            for (const [planId, plan] of Object.entries(exports.PLAN_LIMITS)) {
                 yield repo.save(repo.create({
                     planId,
                     name: plan.name,
                     description: plan.description,
-                    price: (_a = plan.price) !== null && _a !== void 0 ? _a : 0,
+                    price: (_a = plan.price) !== null && _a !== void 0 ? _a : null,
                     maxDevices: plan.maxDevices === Infinity ? -1 : plan.maxDevices,
                     maxGeofences: plan.maxGeofences === Infinity ? -1 : plan.maxGeofences,
                     vpnFiltering: plan.vpnFiltering,
@@ -176,6 +186,8 @@ function seedPlanConfigs() {
                     advancedReports: plan.advancedReports,
                     schoolDashboard: plan.schoolDashboard,
                     stripePriceId: (_b = plan.priceId) !== null && _b !== void 0 ? _b : null,
+                    stripePriceIdAnnual: (_c = plan.stripePriceIdAnnual) !== null && _c !== void 0 ? _c : null,
+                    contactSalesOnly: (_d = plan.contactSalesOnly) !== null && _d !== void 0 ? _d : false,
                     trialDays: planId === 'trial' ? 7 : 0,
                 }));
             }
@@ -187,53 +199,69 @@ function seedPlanConfigs() {
     });
 }
 /**
- * Returns a serialisable version of plan configs from DB (with hardcoded fallback).
- * Replaces Infinity / -1 with -1 for JSON consistency.
+ * Returns all active, non-trial plans from the DB for the public pricing page.
+ * Falls back to hardcoded defaults if DB is unavailable.
  */
 function getPlansForClientFromDb() {
     return __awaiter(this, void 0, void 0, function* () {
-        const planIds = ['basic', 'premium', 'premium_plus', 'enterprise'];
-        const results = yield Promise.all(planIds.map((id) => __awaiter(this, void 0, void 0, function* () {
-            const plan = yield getPlanConfig(id);
-            return {
-                id,
-                name: plan.name,
-                description: plan.description,
-                price: plan.price,
+        try {
+            const { AppDataSource } = yield Promise.resolve().then(() => __importStar(require('../database')));
+            const { PlanConfigEntity } = yield Promise.resolve().then(() => __importStar(require('../entities/PlanConfig')));
+            const repo = AppDataSource.getRepository(PlanConfigEntity);
+            const configs = yield repo.find({
+                where: { isActive: true },
+                order: { createdAt: 'ASC' },
+            });
+            return configs
+                .filter(c => c.planId !== 'trial')
+                .map(c => ({
+                id: c.planId,
+                name: c.name,
+                description: c.description,
+                price: c.price,
+                contactSalesOnly: c.contactSalesOnly,
                 features: {
-                    maxDevices: plan.maxDevices === Infinity ? -1 : plan.maxDevices,
-                    maxGeofences: plan.maxGeofences === Infinity ? -1 : plan.maxGeofences,
-                    vpnFiltering: plan.vpnFiltering,
-                    realTimeAlerts: plan.realTimeAlerts,
-                    smartTv: plan.smartTv,
-                    advancedReports: plan.advancedReports,
-                    schoolDashboard: plan.schoolDashboard,
+                    maxDevices: c.maxDevices,
+                    maxGeofences: c.maxGeofences,
+                    vpnFiltering: c.vpnFiltering,
+                    realTimeAlerts: c.realTimeAlerts,
+                    smartTv: c.smartTv,
+                    advancedReports: c.advancedReports,
+                    schoolDashboard: c.schoolDashboard,
                 },
-                priceId: plan.priceId || null,
-            };
-        })));
-        return results;
+                priceId: c.stripePriceId || null,
+                priceIdAnnual: c.stripePriceIdAnnual || null,
+            }));
+        }
+        catch (_a) {
+            return getPlansForClient();
+        }
     });
 }
-/** Returns a serialisable version of PLAN_LIMITS (replaces Infinity with -1 for JSON). */
+/** Hardcoded fallback for getPlansForClientFromDb when DB is unreachable. */
 function getPlansForClient() {
     return Object.entries(exports.PLAN_LIMITS)
         .filter(([id]) => id !== 'trial')
-        .map(([id, plan]) => ({
-        id,
-        name: plan.name,
-        description: plan.description,
-        price: plan.price,
-        features: {
-            maxDevices: plan.maxDevices === Infinity ? -1 : plan.maxDevices,
-            maxGeofences: plan.maxGeofences === Infinity ? -1 : plan.maxGeofences,
-            vpnFiltering: plan.vpnFiltering,
-            realTimeAlerts: plan.realTimeAlerts,
-            smartTv: plan.smartTv,
-            advancedReports: plan.advancedReports,
-            schoolDashboard: plan.schoolDashboard,
-        },
-        priceId: plan.priceId || null,
-    }));
+        .map(([id, plan]) => {
+        var _a;
+        return ({
+            id,
+            name: plan.name,
+            description: plan.description,
+            price: plan.price,
+            contactSalesOnly: (_a = plan.contactSalesOnly) !== null && _a !== void 0 ? _a : false,
+            features: {
+                maxDevices: plan.maxDevices === Infinity ? -1 : plan.maxDevices,
+                maxGeofences: plan.maxGeofences === Infinity ? -1 : plan.maxGeofences,
+                vpnFiltering: plan.vpnFiltering,
+                realTimeAlerts: plan.realTimeAlerts,
+                smartTv: plan.smartTv,
+                advancedReports: plan.advancedReports,
+                schoolDashboard: plan.schoolDashboard,
+            },
+            priceId: plan.priceId || null,
+            priceIdAnnual: plan.stripePriceIdAnnual || null,
+        });
+    });
 }
 //# sourceMappingURL=plans.js.map

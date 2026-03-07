@@ -33,16 +33,18 @@ class SubscriptionController {
                     return response_1.ApiResponse.error(res, 'Subscription not found', 404);
                 }
                 const effectivePlan = subscription_service_1.subscriptionService.getEffectivePlan(sub);
+                const features = effectivePlan ? yield (0, plans_1.getPlanConfig)(effectivePlan) : null;
                 return response_1.ApiResponse.success(res, {
                     id: sub.id,
                     plan: sub.plan,
                     status: sub.status,
+                    billingInterval: sub.billingInterval,
                     effectivePlan,
                     trialEndsAt: sub.trialEndsAt,
                     currentPeriodEnd: sub.currentPeriodEnd,
                     cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
                     hasStripeSubscription: !!sub.stripeSubscriptionId,
-                    features: effectivePlan ? plans_1.PLAN_LIMITS[effectivePlan] : null,
+                    features,
                 }, 'Subscription details');
             }
             catch (err) {
@@ -56,18 +58,12 @@ class SubscriptionController {
                 if (!priceId || typeof priceId !== 'string') {
                     return response_1.ApiResponse.error(res, 'priceId is required', 400);
                 }
-                // Verify priceId belongs to a known plan
-                const knownPriceIds = Object.values(plans_1.PLAN_LIMITS)
-                    .map(p => p.priceId)
-                    .filter(Boolean);
-                if (!knownPriceIds.includes(priceId)) {
-                    return response_1.ApiResponse.error(res, 'Invalid plan selected', 400);
-                }
+                // Full validation (plan existence, isActive, contactSalesOnly) is done in the service
                 const result = yield subscription_service_1.subscriptionService.createStripeSubscription(req.user.id, priceId, promoCode ? String(promoCode) : undefined);
                 return response_1.ApiResponse.success(res, result, 'Payment intent created');
             }
             catch (err) {
-                return response_1.ApiResponse.error(res, err.message);
+                return response_1.ApiResponse.error(res, err.message, 400);
             }
         });
         /** POST /api/subscription/portal — authenticated parent */

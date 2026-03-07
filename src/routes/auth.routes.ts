@@ -5,6 +5,7 @@ import { authLimiter, strictLimiter } from '../middlewares/rateLimiter';
 const router = Router();
 const authController = new AuthController();
 
+router.post('/detect-locale', authLimiter, authController.detectLocale);
 router.post('/register', authLimiter, authController.register);
 router.post('/login', authLimiter, authController.login);
 router.post('/refresh', authController.refresh);

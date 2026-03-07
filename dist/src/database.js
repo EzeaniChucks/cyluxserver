@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AppDataSource = void 0;
+require("dotenv/config");
 require("reflect-metadata");
 const typeorm_1 = require("typeorm");
 const path_1 = require("path");
@@ -12,7 +13,7 @@ exports.AppDataSource = new typeorm_1.DataSource({
     entities: [(0, path_1.join)(__dirname, "entities/*.{ts,js}")],
     migrations: [(0, path_1.join)(__dirname, "migrations/*.{ts,js}")], // Add this line
     synchronize: false,
-    ssl: process.env.NODE_ENV === "production"
+    ssl: process.env.DATABASE_URL
         ? { rejectUnauthorized: false }
         : false,
 });

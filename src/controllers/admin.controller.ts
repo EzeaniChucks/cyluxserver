@@ -127,9 +127,44 @@ export class AdminController {
   updatePlan = async (req: any, res: any) => {
     try {
       const plan = await adminService.updatePlanConfig(req.params.planId, req.body, req.admin.id);
-      return ApiResponse.success(res, plan, 'Plan config updated');
+      return ApiResponse.success(res, plan, 'Plan updated');
     } catch (err: any) {
       return ApiResponse.error(res, err.message);
+    }
+  };
+
+  createPlan = async (req: any, res: any) => {
+    try {
+      const {
+        planId, name, description, price, stripePriceId, stripePriceIdAnnual,
+        contactSalesOnly, maxDevices, maxGeofences, vpnFiltering, realTimeAlerts,
+        smartTv, advancedReports, schoolDashboard, trialDays,
+      } = req.body;
+      if (!planId || !name || !description || maxDevices === undefined || maxGeofences === undefined) {
+        return ApiResponse.error(res, 'planId, name, description, maxDevices, and maxGeofences are required', 400);
+      }
+      const plan = await adminService.createPlanConfig({
+        planId, name, description, price, stripePriceId, stripePriceIdAnnual,
+        contactSalesOnly, maxDevices, maxGeofences,
+        vpnFiltering: vpnFiltering ?? false,
+        realTimeAlerts: realTimeAlerts ?? false,
+        smartTv: smartTv ?? false,
+        advancedReports: advancedReports ?? false,
+        schoolDashboard: schoolDashboard ?? false,
+        trialDays,
+      }, req.admin.id);
+      return ApiResponse.success(res, plan, 'Plan created', 201);
+    } catch (err: any) {
+      return ApiResponse.error(res, err.message, 400);
+    }
+  };
+
+  deactivatePlan = async (req: any, res: any) => {
+    try {
+      const plan = await adminService.deactivatePlanConfig(req.params.planId, req.admin.id);
+      return ApiResponse.success(res, plan, 'Plan deactivated');
+    } catch (err: any) {
+      return ApiResponse.error(res, err.message, 400);
     }
   };
 

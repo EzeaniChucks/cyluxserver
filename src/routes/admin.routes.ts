@@ -24,7 +24,9 @@ router.get('/subscriptions', protectAdmin(['superadmin', 'admin', 'support']), a
 
 // Plans
 router.get('/plans', protectAdmin(['superadmin', 'admin', 'support']), adminController.getPlans);
+router.post('/plans', protectAdmin(['superadmin']), adminController.createPlan);
 router.patch('/plans/:planId', protectAdmin(['superadmin']), adminController.updatePlan);
+router.delete('/plans/:planId', protectAdmin(['superadmin']), adminController.deactivatePlan);
 
 // Parent Referral Program Config
 router.get('/parent-referral-config', protectAdmin(['superadmin', 'admin']), adminController.getParentReferralConfig);

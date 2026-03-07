@@ -14,6 +14,7 @@ import subscriptionRoutes from "./routes/subscription.routes";
 import adminRoutes from "./routes/admin.routes";
 import influencerRoutes from "./routes/influencer.routes";
 import walletRoutes from "./routes/wallet.routes";
+import smartDeviceRoutes from "./routes/smartDevice.routes";
 import { subscriptionController } from "./controllers/subscription.controller";
 import { requestLogger } from "./middlewares/logger";
 import { errorHandler } from "./middlewares/error";
@@ -113,6 +114,7 @@ app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/influencer", influencerRoutes);
 app.use("/api/wallet", walletRoutes);
+app.use("/api/smart-devices", smartDeviceRoutes);
 
 app.use(errorHandler);
 

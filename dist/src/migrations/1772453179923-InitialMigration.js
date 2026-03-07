@@ -1,0 +1,101 @@
+"use strict";
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.InitialMigration1772453179923 = void 0;
+class InitialMigration1772453179923 {
+    constructor() {
+        this.name = 'InitialMigration1772453179923';
+    }
+    up(queryRunner) {
+        return __awaiter(this, void 0, void 0, function* () {
+            yield queryRunner.query(`CREATE TABLE "wallet_transaction_entity" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "walletId" uuid NOT NULL, "type" character varying NOT NULL, "amountUsd" numeric(10,2) NOT NULL, "description" character varying NOT NULL, "referenceId" character varying, "status" character varying NOT NULL DEFAULT 'pending', "availableAt" TIMESTAMP WITH TIME ZONE, "stripeTransferId" character varying, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_9774b266b392224cb806d6d29ed" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`CREATE TABLE "wallet_entity" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "ownerId" character varying NOT NULL, "ownerType" character varying NOT NULL, "balanceUsd" numeric(10,2) NOT NULL DEFAULT '0', "pendingUsd" numeric(10,2) NOT NULL DEFAULT '0', "lifetimeEarnedUsd" numeric(10,2) NOT NULL DEFAULT '0', "totalWithdrawnUsd" numeric(10,2) NOT NULL DEFAULT '0', "stripeConnectAccountId" character varying, "stripeConnectOnboarded" boolean NOT NULL DEFAULT false, "country" character varying, "currency" character varying NOT NULL DEFAULT 'USD', "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_3e429a1b7a56251b6b8ed06050d" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`CREATE TYPE "public"."audit_log_entity_actiontype_enum" AS ENUM('APP_OPEN', 'APP_CLOSE', 'APP_BLOCKED', 'WEB_VISIT', 'WEB_BLOCKED', 'GEOFENCE_ENTER', 'GEOFENCE_EXIT', 'GEOFENCE_DWELL', 'LIMIT_REACHED', 'LIMIT_WARNING', 'DEVICE_LOCK', 'DEVICE_UNLOCK', 'HEARTBEAT', 'INVENTORY_SCAN', 'POLICY_SYNC', 'COMMAND_EXECUTED', 'LOCATION_UPDATE', 'BATTERY_UPDATE', 'TAMPER_DETECTED', 'SETTING_CHANGED', 'VPN_STATUS', 'SOS_PANIC', 'UNLOCK_REQUEST')`);
+            yield queryRunner.query(`CREATE TABLE "audit_log_entity" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "childId" character varying NOT NULL, "actionType" "public"."audit_log_entity_actiontype_enum" NOT NULL, "details" text NOT NULL, "isFlagged" boolean NOT NULL DEFAULT false, "location" jsonb, "metadata" jsonb, "timestamp" TIMESTAMP NOT NULL DEFAULT now(), "sessionId" character varying, "schemaVersion" character varying NOT NULL DEFAULT '1.0', CONSTRAINT "PK_c6c5d74b38ecfe778182348e7cb" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`CREATE TYPE "public"."alert_entity_type_enum" AS ENUM('geofence_entry', 'geofence_exit', 'geofence_breach', 'limit_reached', 'unsafe_content', 'new_app', 'device_tampered', 'device_offline', 'battery_low', 'policy_violation', 'sos_emergency', 'time_request')`);
+            yield queryRunner.query(`CREATE TYPE "public"."alert_entity_severity_enum" AS ENUM('info', 'warning', 'high', 'critical')`);
+            yield queryRunner.query(`CREATE TABLE "alert_entity" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "childId" character varying NOT NULL, "type" "public"."alert_entity_type_enum" NOT NULL, "message" text NOT NULL, "timestamp" TIMESTAMP NOT NULL DEFAULT now(), "severity" "public"."alert_entity_severity_enum" NOT NULL DEFAULT 'warning', "isResolved" boolean NOT NULL DEFAULT false, "resolvedAt" TIMESTAMP, "metadata" json, CONSTRAINT "PK_ff36cd7694aa7383f54792290f7" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`CREATE TYPE "public"."child_entity_devicetype_enum" AS ENUM('ios', 'android')`);
+            yield queryRunner.query(`CREATE TABLE "child_entity" ("id" character varying NOT NULL, "name" character varying NOT NULL, "status" character varying NOT NULL DEFAULT 'active', "isEnrolled" boolean NOT NULL DEFAULT true, "complianceStatus" character varying NOT NULL DEFAULT 'compliant', "battery" integer NOT NULL DEFAULT '100', "fcmToken" character varying, "deviceType" "public"."child_entity_devicetype_enum", "location" jsonb, "dailyLimitMinutes" integer NOT NULL DEFAULT '120', "usedMinutes" integer NOT NULL DEFAULT '0', "webFilter" jsonb NOT NULL DEFAULT '{"blockedDomains":[],"allowedDomains":[],"categoryFiltering":true}', "blockedApps" jsonb NOT NULL DEFAULT '[]', "geofences" jsonb NOT NULL DEFAULT '[]', "geofenceStats" jsonb, "locationHistory" jsonb NOT NULL DEFAULT '[]', "schedules" jsonb NOT NULL DEFAULT '[]', "appUsage" jsonb NOT NULL DEFAULT '[]', "usageHistory" jsonb NOT NULL DEFAULT '{}', "lastSeen" TIMESTAMP NOT NULL DEFAULT now(), "lastInventoryScan" TIMESTAMP, "deviceJwt" character varying, "parentId" uuid, CONSTRAINT "PK_2d1d08fcbb47bf6f5ef09111700" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`CREATE INDEX "IDX_1d04f66c5f9af0cb5682c6cb53" ON "child_entity" ("lastSeen") `);
+            yield queryRunner.query(`CREATE TYPE "public"."parent_entity_devicetype_enum" AS ENUM('ios', 'android')`);
+            yield queryRunner.query(`CREATE TABLE "parent_entity" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "email" character varying NOT NULL, "passwordHash" character varying NOT NULL, "name" character varying NOT NULL, "fcmToken" character varying, "deviceType" "public"."parent_entity_devicetype_enum", "resetPasswordToken" character varying, "resetPasswordExpires" TIMESTAMP, "failedLoginAttempts" integer NOT NULL DEFAULT '0', "lockedUntil" TIMESTAMP, "referralCode" character varying, "ownReferralCode" character varying, "country" character varying(2), "currency" character varying(10) NOT NULL DEFAULT 'usd', "locale" character varying, "vpnFlagged" boolean NOT NULL DEFAULT false, "detectedVia" character varying, CONSTRAINT "UQ_997a357b42b8140b01a554edfe8" UNIQUE ("email"), CONSTRAINT "UQ_df965fc56c80b6542c193aac009" UNIQUE ("ownReferralCode"), CONSTRAINT "PK_ab7017bfc43e55d226ec1d84132" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`CREATE TABLE "subscription_entity" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "parentId" uuid NOT NULL, "plan" character varying NOT NULL DEFAULT 'trial', "status" character varying NOT NULL DEFAULT 'trialing', "billingInterval" character varying NOT NULL DEFAULT 'monthly', "trialEndsAt" TIMESTAMP, "currentPeriodEnd" TIMESTAMP, "stripeCustomerId" character varying, "stripeSubscriptionId" character varying, "cancelAtPeriodEnd" boolean NOT NULL DEFAULT false, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "REL_23f0b31fc819b9f55af307e35b" UNIQUE ("parentId"), CONSTRAINT "PK_a98819993766819c043b332748d" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`CREATE TABLE "influencer_entity" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "name" character varying NOT NULL, "email" character varying NOT NULL, "passwordHash" character varying NOT NULL, "code" character varying NOT NULL, "discountPercent" double precision NOT NULL DEFAULT '20', "stripeCouponId" character varying, "rewardType" character varying, "rewardValue" double precision, "totalReferrals" integer NOT NULL DEFAULT '0', "totalConversions" integer NOT NULL DEFAULT '0', "totalEarningsUsd" double precision NOT NULL DEFAULT '0', "isActive" boolean NOT NULL DEFAULT true, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_565f795b038bbdbfa97fee292fe" UNIQUE ("email"), CONSTRAINT "UQ_8cb57774c251036ce657497d951" UNIQUE ("code"), CONSTRAINT "PK_0a206632a2a5961056da9d8399e" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`CREATE TABLE "referral_entity" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "influencerId" uuid NOT NULL, "referredParentId" uuid NOT NULL, "status" character varying NOT NULL DEFAULT 'registered', "discountPercent" double precision NOT NULL DEFAULT '0', "firstPaymentAmountCents" integer, "rewardAmount" double precision, "rewardType" character varying, "rewardPaidAt" TIMESTAMP, "plan" character varying, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_188c5a14d6d2d18166f13014287" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`CREATE TABLE "plan_config_entity" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "planId" character varying NOT NULL, "name" character varying NOT NULL, "description" text NOT NULL, "price" double precision, "maxDevices" integer NOT NULL, "maxGeofences" integer NOT NULL, "vpnFiltering" boolean NOT NULL DEFAULT false, "realTimeAlerts" boolean NOT NULL DEFAULT false, "smartTv" boolean NOT NULL DEFAULT false, "advancedReports" boolean NOT NULL DEFAULT false, "schoolDashboard" boolean NOT NULL DEFAULT false, "stripePriceId" character varying, "stripePriceIdAnnual" character varying, "contactSalesOnly" boolean NOT NULL DEFAULT false, "trialDays" integer NOT NULL DEFAULT '0', "isActive" boolean NOT NULL DEFAULT true, "updatedByAdminId" character varying, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_f16e9768f32f2ef25d2f15d3bf8" UNIQUE ("planId"), CONSTRAINT "PK_3ca47b9b4567a43b061074211f1" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`CREATE TABLE "payout_config_entity" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "minWithdrawalUsdInfluencer" numeric(10,2) NOT NULL DEFAULT '20', "minWithdrawalUsdParent" numeric(10,2) NOT NULL DEFAULT '10', "holdDays" integer NOT NULL DEFAULT '14', "updatedByAdminId" character varying, "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_23e95d5007f290da9165a5f2193" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`CREATE TABLE "parent_referral_config_entity" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "isEnabled" boolean NOT NULL DEFAULT true, "rewardType" character varying NOT NULL DEFAULT 'trial_extension_days', "rewardValue" double precision NOT NULL DEFAULT '7', "referredDiscountPercent" double precision NOT NULL DEFAULT '0', "updatedByAdminId" character varying, "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_814bbde182e7d7f646391a3f8d9" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`CREATE TABLE "parent_referral_entity" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "referrerId" uuid NOT NULL, "referredId" uuid NOT NULL, "status" character varying NOT NULL DEFAULT 'registered', "plan" character varying, "firstPaymentAmountCents" integer, "rewardValue" double precision, "rewardType" character varying, "rewardGrantedAt" TIMESTAMP, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_4e123d4ae233b38a95a09ad52be" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`CREATE TABLE "pairing_entity" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "code" character varying NOT NULL, "parentId" character varying NOT NULL, "childName" character varying NOT NULL, "expiresAt" TIMESTAMP NOT NULL, "attemptCount" integer NOT NULL DEFAULT '0', "createdAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_2bc88441c7e36f36cc2877b33e1" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`CREATE INDEX "IDX_4c2c5a3bcd9080a5f7eac8a742" ON "pairing_entity" ("code") `);
+            yield queryRunner.query(`CREATE TYPE "public"."notification_entity_recipienttype_enum" AS ENUM('parent', 'child')`);
+            yield queryRunner.query(`CREATE TABLE "notification_entity" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "recipientId" character varying NOT NULL, "recipientType" "public"."notification_entity_recipienttype_enum" NOT NULL, "title" character varying NOT NULL, "body" text NOT NULL, "isRead" boolean NOT NULL DEFAULT false, "data" jsonb, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_112676de71a3a708b914daed289" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`CREATE INDEX "IDX_4557751543ffe0a8c88edbe4bc" ON "notification_entity" ("recipientId") `);
+            yield queryRunner.query(`CREATE TYPE "public"."command_entity_type_enum" AS ENUM('LOCK', 'UNLOCK', 'PLAY_SIREN', 'SYNC_POLICY', 'WIPE_BROWSER', 'TAKE_SCREENSHOT', 'REMOTE_WIPE', 'REBOOT', 'INVENTORY_SCAN')`);
+            yield queryRunner.query(`CREATE TABLE "command_entity" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "childId" character varying NOT NULL, "type" "public"."command_entity_type_enum" NOT NULL, "payload" jsonb, "status" character varying NOT NULL DEFAULT 'pending', "createdAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_41424bee08545ee38595b755874" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`CREATE INDEX "IDX_1af0c2e54d5b79172244fd977e" ON "command_entity" ("childId") `);
+            yield queryRunner.query(`CREATE TABLE "admin_entity" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "email" character varying NOT NULL, "passwordHash" character varying NOT NULL, "name" character varying NOT NULL, "role" character varying NOT NULL DEFAULT 'admin', "isActive" boolean NOT NULL DEFAULT true, "lastLoginAt" TIMESTAMP, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_2a4c8cb05264be7377c625c2715" UNIQUE ("email"), CONSTRAINT "PK_bc992df5ddb70aefb955b8a0c92" PRIMARY KEY ("id"))`);
+            yield queryRunner.query(`ALTER TABLE "audit_log_entity" ADD CONSTRAINT "FK_d9e3356e1595e1b004ca9ad3a60" FOREIGN KEY ("childId") REFERENCES "child_entity"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+            yield queryRunner.query(`ALTER TABLE "alert_entity" ADD CONSTRAINT "FK_c8ac534162bdef93428753d22fc" FOREIGN KEY ("childId") REFERENCES "child_entity"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+            yield queryRunner.query(`ALTER TABLE "child_entity" ADD CONSTRAINT "FK_e3f3dd63be322a51911149555c9" FOREIGN KEY ("parentId") REFERENCES "parent_entity"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+            yield queryRunner.query(`ALTER TABLE "subscription_entity" ADD CONSTRAINT "FK_23f0b31fc819b9f55af307e35b1" FOREIGN KEY ("parentId") REFERENCES "parent_entity"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+            yield queryRunner.query(`ALTER TABLE "referral_entity" ADD CONSTRAINT "FK_a61203874642b7670367eff6a19" FOREIGN KEY ("influencerId") REFERENCES "influencer_entity"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+            yield queryRunner.query(`ALTER TABLE "referral_entity" ADD CONSTRAINT "FK_cfa63bca7795637241f795abb24" FOREIGN KEY ("referredParentId") REFERENCES "parent_entity"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+            yield queryRunner.query(`ALTER TABLE "parent_referral_entity" ADD CONSTRAINT "FK_4fe073c98e6fa65f59a65afb060" FOREIGN KEY ("referrerId") REFERENCES "parent_entity"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+            yield queryRunner.query(`ALTER TABLE "parent_referral_entity" ADD CONSTRAINT "FK_507ea4c8e4f89403af40e3565ad" FOREIGN KEY ("referredId") REFERENCES "parent_entity"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+            yield queryRunner.query(`ALTER TABLE "command_entity" ADD CONSTRAINT "FK_1af0c2e54d5b79172244fd977e1" FOREIGN KEY ("childId") REFERENCES "child_entity"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+        });
+    }
+    down(queryRunner) {
+        return __awaiter(this, void 0, void 0, function* () {
+            yield queryRunner.query(`ALTER TABLE "command_entity" DROP CONSTRAINT "FK_1af0c2e54d5b79172244fd977e1"`);
+            yield queryRunner.query(`ALTER TABLE "parent_referral_entity" DROP CONSTRAINT "FK_507ea4c8e4f89403af40e3565ad"`);
+            yield queryRunner.query(`ALTER TABLE "parent_referral_entity" DROP CONSTRAINT "FK_4fe073c98e6fa65f59a65afb060"`);
+            yield queryRunner.query(`ALTER TABLE "referral_entity" DROP CONSTRAINT "FK_cfa63bca7795637241f795abb24"`);
+            yield queryRunner.query(`ALTER TABLE "referral_entity" DROP CONSTRAINT "FK_a61203874642b7670367eff6a19"`);
+            yield queryRunner.query(`ALTER TABLE "subscription_entity" DROP CONSTRAINT "FK_23f0b31fc819b9f55af307e35b1"`);
+            yield queryRunner.query(`ALTER TABLE "child_entity" DROP CONSTRAINT "FK_e3f3dd63be322a51911149555c9"`);
+            yield queryRunner.query(`ALTER TABLE "alert_entity" DROP CONSTRAINT "FK_c8ac534162bdef93428753d22fc"`);
+            yield queryRunner.query(`ALTER TABLE "audit_log_entity" DROP CONSTRAINT "FK_d9e3356e1595e1b004ca9ad3a60"`);
+            yield queryRunner.query(`DROP TABLE "admin_entity"`);
+            yield queryRunner.query(`DROP INDEX "public"."IDX_1af0c2e54d5b79172244fd977e"`);
+            yield queryRunner.query(`DROP TABLE "command_entity"`);
+            yield queryRunner.query(`DROP TYPE "public"."command_entity_type_enum"`);
+            yield queryRunner.query(`DROP INDEX "public"."IDX_4557751543ffe0a8c88edbe4bc"`);
+            yield queryRunner.query(`DROP TABLE "notification_entity"`);
+            yield queryRunner.query(`DROP TYPE "public"."notification_entity_recipienttype_enum"`);
+            yield queryRunner.query(`DROP INDEX "public"."IDX_4c2c5a3bcd9080a5f7eac8a742"`);
+            yield queryRunner.query(`DROP TABLE "pairing_entity"`);
+            yield queryRunner.query(`DROP TABLE "parent_referral_entity"`);
+            yield queryRunner.query(`DROP TABLE "parent_referral_config_entity"`);
+            yield queryRunner.query(`DROP TABLE "payout_config_entity"`);
+            yield queryRunner.query(`DROP TABLE "plan_config_entity"`);
+            yield queryRunner.query(`DROP TABLE "referral_entity"`);
+            yield queryRunner.query(`DROP TABLE "influencer_entity"`);
+            yield queryRunner.query(`DROP TABLE "subscription_entity"`);
+            yield queryRunner.query(`DROP TABLE "parent_entity"`);
+            yield queryRunner.query(`DROP TYPE "public"."parent_entity_devicetype_enum"`);
+            yield queryRunner.query(`DROP INDEX "public"."IDX_1d04f66c5f9af0cb5682c6cb53"`);
+            yield queryRunner.query(`DROP TABLE "child_entity"`);
+            yield queryRunner.query(`DROP TYPE "public"."child_entity_devicetype_enum"`);
+            yield queryRunner.query(`DROP TABLE "alert_entity"`);
+            yield queryRunner.query(`DROP TYPE "public"."alert_entity_severity_enum"`);
+            yield queryRunner.query(`DROP TYPE "public"."alert_entity_type_enum"`);
+            yield queryRunner.query(`DROP TABLE "audit_log_entity"`);
+            yield queryRunner.query(`DROP TYPE "public"."audit_log_entity_actiontype_enum"`);
+            yield queryRunner.query(`DROP TABLE "wallet_entity"`);
+            yield queryRunner.query(`DROP TABLE "wallet_transaction_entity"`);
+        });
+    }
+}
+exports.InitialMigration1772453179923 = InitialMigration1772453179923;
+//# sourceMappingURL=1772453179923-InitialMigration.js.map

@@ -65,6 +65,26 @@ __decorate([
     __metadata("design:type", Object)
 ], ParentEntity.prototype, "ownReferralCode", void 0);
 __decorate([
+    (0, typeorm_1.Column)({ type: 'varchar', length: 2, nullable: true }),
+    __metadata("design:type", Object)
+], ParentEntity.prototype, "country", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ type: 'varchar', length: 10, default: 'usd' }),
+    __metadata("design:type", String)
+], ParentEntity.prototype, "currency", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ type: 'varchar', nullable: true }),
+    __metadata("design:type", Object)
+], ParentEntity.prototype, "locale", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ type: 'boolean', default: false }),
+    __metadata("design:type", Boolean)
+], ParentEntity.prototype, "vpnFlagged", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ type: 'varchar', nullable: true }),
+    __metadata("design:type", Object)
+], ParentEntity.prototype, "detectedVia", void 0);
+__decorate([
     (0, typeorm_1.OneToMany)(() => Child_1.ChildEntity, child => child.parent),
     __metadata("design:type", Array)
 ], ParentEntity.prototype, "children", void 0);

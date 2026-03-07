@@ -136,10 +136,41 @@ class AdminController {
         this.updatePlan = (req, res) => __awaiter(this, void 0, void 0, function* () {
             try {
                 const plan = yield admin_service_1.adminService.updatePlanConfig(req.params.planId, req.body, req.admin.id);
-                return response_1.ApiResponse.success(res, plan, 'Plan config updated');
+                return response_1.ApiResponse.success(res, plan, 'Plan updated');
             }
             catch (err) {
                 return response_1.ApiResponse.error(res, err.message);
+            }
+        });
+        this.createPlan = (req, res) => __awaiter(this, void 0, void 0, function* () {
+            try {
+                const { planId, name, description, price, stripePriceId, stripePriceIdAnnual, contactSalesOnly, maxDevices, maxGeofences, vpnFiltering, realTimeAlerts, smartTv, advancedReports, schoolDashboard, trialDays, } = req.body;
+                if (!planId || !name || !description || maxDevices === undefined || maxGeofences === undefined) {
+                    return response_1.ApiResponse.error(res, 'planId, name, description, maxDevices, and maxGeofences are required', 400);
+                }
+                const plan = yield admin_service_1.adminService.createPlanConfig({
+                    planId, name, description, price, stripePriceId, stripePriceIdAnnual,
+                    contactSalesOnly, maxDevices, maxGeofences,
+                    vpnFiltering: vpnFiltering !== null && vpnFiltering !== void 0 ? vpnFiltering : false,
+                    realTimeAlerts: realTimeAlerts !== null && realTimeAlerts !== void 0 ? realTimeAlerts : false,
+                    smartTv: smartTv !== null && smartTv !== void 0 ? smartTv : false,
+                    advancedReports: advancedReports !== null && advancedReports !== void 0 ? advancedReports : false,
+                    schoolDashboard: schoolDashboard !== null && schoolDashboard !== void 0 ? schoolDashboard : false,
+                    trialDays,
+                }, req.admin.id);
+                return response_1.ApiResponse.success(res, plan, 'Plan created', 201);
+            }
+            catch (err) {
+                return response_1.ApiResponse.error(res, err.message, 400);
+            }
+        });
+        this.deactivatePlan = (req, res) => __awaiter(this, void 0, void 0, function* () {
+            try {
+                const plan = yield admin_service_1.adminService.deactivatePlanConfig(req.params.planId, req.admin.id);
+                return response_1.ApiResponse.success(res, plan, 'Plan deactivated');
+            }
+            catch (err) {
+                return response_1.ApiResponse.error(res, err.message, 400);
             }
         });
         // ─── Influencers ──────────────────────────────────────────────────────────

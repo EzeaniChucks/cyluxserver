@@ -50,6 +50,7 @@ const stripe_1 = __importDefault(require("stripe"));
 const database_1 = require("../database");
 const Subscription_1 = require("../entities/Subscription");
 const Parent_1 = require("../entities/Parent");
+const PlanConfig_1 = require("../entities/PlanConfig");
 const plans_1 = require("../config/plans");
 const email_service_1 = require("./email.service");
 const stripe = new stripe_1.default(process.env.STRIPE_SECRET_KEY || '', {
@@ -57,6 +58,7 @@ const stripe = new stripe_1.default(process.env.STRIPE_SECRET_KEY || '', {
 });
 const subRepo = () => database_1.AppDataSource.getRepository(Subscription_1.SubscriptionEntity);
 const parentRepo = () => database_1.AppDataSource.getRepository(Parent_1.ParentEntity);
+const planRepo = () => database_1.AppDataSource.getRepository(PlanConfig_1.PlanConfigEntity);
 class SubscriptionService {
     // ─── Trial Creation ───────────────────────────────────────────────────────
     /** Called from auth.service.ts immediately after a new parent is saved. */
@@ -67,6 +69,7 @@ class SubscriptionService {
                 parentId,
                 plan: 'trial',
                 status: 'trialing',
+                billingInterval: 'monthly',
                 trialEndsAt,
                 stripeCustomerId: null,
                 stripeSubscriptionId: null,
@@ -77,18 +80,10 @@ class SubscriptionService {
         });
     }
     // ─── Retrieval ────────────────────────────────────────────────────────────
-    /** Returns the subscription for a parent, auto-expiring the trial if needed.
-     *
-     *  If no subscription row exists for a valid parent (e.g. accounts registered
-     *  before the subscription system was introduced, or where the trial-creation
-     *  call failed silently at sign-up), one is created automatically so the user
-     *  is never stuck with a hard "Subscription record not found" error.
-     */
     getSubscription(parentId) {
         return __awaiter(this, void 0, void 0, function* () {
             let sub = yield subRepo().findOne({ where: { parentId } });
             if (!sub) {
-                // Only backfill for parents that actually exist in the DB.
                 const parent = yield parentRepo().findOne({ where: { id: parentId } });
                 if (!parent)
                     return null;
@@ -103,12 +98,12 @@ class SubscriptionService {
         });
     }
     /**
-     * Returns the effective plan to use for limit checks.
-     * Returns null if the user has no active/trial subscription (paywalled).
+     * Returns the effective plan slug for limit checks.
+     * Returns null if the subscription is expired/cancelled (paywalled).
      */
     getEffectivePlan(sub) {
         if (!sub)
-            return 'trial'; // Defensive: parents with no subscription record get trial access
+            return 'trial';
         if (sub.status === 'trialing' && sub.trialEndsAt && sub.trialEndsAt > new Date()) {
             return 'trial';
         }
@@ -118,14 +113,14 @@ class SubscriptionService {
         return null;
     }
     // ─── Limit Checks ─────────────────────────────────────────────────────────
-    /** Returns { allowed, limit } for any plan feature key. */
+    /** Returns { allowed, limit } for any plan feature key. DB-first via getPlanConfig. */
     checkLimit(parentId, key) {
         return __awaiter(this, void 0, void 0, function* () {
             const sub = yield this.getSubscription(parentId);
             const planId = this.getEffectivePlan(sub);
             if (!planId)
                 return { allowed: false, limit: 0 };
-            const limits = plans_1.PLAN_LIMITS[planId];
+            const limits = yield (0, plans_1.getPlanConfig)(planId);
             const value = limits[key];
             if (typeof value === 'boolean')
                 return { allowed: value, limit: value };
@@ -138,7 +133,9 @@ class SubscriptionService {
     /**
      * Creates a Stripe Customer (if needed) + Subscription in `default_incomplete` mode.
      * Returns the clientSecret for Stripe Payment Sheet.
-     * Accepts an optional promoCode (influencer referral code) to apply a discount coupon.
+     *
+     * The billing interval (monthly vs annual) is derived from the priceId itself —
+     * the client does not need to send it separately.
      */
     createStripeSubscription(parentId, priceId, promoCode) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -146,19 +143,22 @@ class SubscriptionService {
             const parent = yield parentRepo().findOne({ where: { id: parentId } });
             if (!parent)
                 throw new Error('Parent not found');
-            // getSubscription() auto-creates a trial record for any valid parent,
-            // so sub will only be null here if the parentId itself doesn't exist
-            // (already guarded by the 'Parent not found' check above).
             const sub = yield this.getSubscription(parentId);
             if (!sub)
                 throw new Error('Parent account not found');
-            // Validate the priceId is one we recognise
-            const knownPriceIds = Object.values(plans_1.PLAN_LIMITS)
-                .map(p => p.priceId)
-                .filter(Boolean);
-            if (!knownPriceIds.includes(priceId)) {
+            // Validate priceId against active plans in DB — determines monthly vs annual
+            const monthlyMatch = yield planRepo().findOne({
+                where: { stripePriceId: priceId, isActive: true },
+            });
+            const annualMatch = !monthlyMatch
+                ? yield planRepo().findOne({ where: { stripePriceIdAnnual: priceId, isActive: true } })
+                : null;
+            const matchedPlan = monthlyMatch || annualMatch;
+            if (!matchedPlan)
                 throw new Error('Invalid plan selected');
-            }
+            if (matchedPlan.contactSalesOnly)
+                throw new Error('This plan requires contacting sales — no self-serve checkout');
+            const billingInterval = monthlyMatch ? 'monthly' : 'annual';
             // Create Stripe customer if not already created
             let customerId = sub.stripeCustomerId;
             if (!customerId) {
@@ -171,7 +171,7 @@ class SubscriptionService {
                 sub.stripeCustomerId = customerId;
                 yield subRepo().save(sub);
             }
-            // Resolve influencer coupon if promoCode provided (or from parent's stored referralCode)
+            // Resolve influencer coupon
             const codeToApply = promoCode || parent.referralCode || undefined;
             let stripeCouponId = null;
             let discountApplied;
@@ -185,10 +185,10 @@ class SubscriptionService {
                     }
                 }
                 catch (_b) {
-                    // Non-fatal — proceed without discount
+                    // Non-fatal
                 }
             }
-            // If no influencer discount, check for parent-referral discount
+            // Fall back to parent-referral discount
             if (!stripeCouponId) {
                 try {
                     const { parentReferralService } = yield Promise.resolve().then(() => __importStar(require('./parentReferral.service')));
@@ -205,7 +205,6 @@ class SubscriptionService {
                     // Non-fatal
                 }
             }
-            // Build subscription params
             const subParams = {
                 customer: customerId,
                 items: [{ price: priceId }],
@@ -215,9 +214,9 @@ class SubscriptionService {
             if (stripeCouponId) {
                 subParams.discounts = [{ coupon: stripeCouponId }];
             }
-            // Create the subscription in incomplete state so we can collect payment
             const subscription = yield stripe.subscriptions.create(subParams);
             sub.stripeSubscriptionId = subscription.id;
+            sub.billingInterval = billingInterval;
             yield subRepo().save(sub);
             const invoice = subscription.latest_invoice;
             const clientSecret = (_a = invoice.confirmation_secret) === null || _a === void 0 ? void 0 : _a.client_secret;
@@ -258,7 +257,7 @@ class SubscriptionService {
     // ─── Webhook Handler ──────────────────────────────────────────────────────
     handleWebhook(rawBody, sig) {
         return __awaiter(this, void 0, void 0, function* () {
-            var _a, _b, _c, _d, _e;
+            var _a, _b, _c, _d;
             const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
             if (!webhookSecret) {
                 console.warn('[Subscription] STRIPE_WEBHOOK_SECRET not set — skipping webhook verification');
@@ -301,25 +300,20 @@ class SubscriptionService {
                             yield subRepo().save(sub);
                             const parent = yield parentRepo().findOne({ where: { id: sub.parentId } });
                             if (parent) {
-                                const planName = ((_c = plans_1.PLAN_LIMITS[sub.plan]) === null || _c === void 0 ? void 0 : _c.name) || sub.plan;
+                                const planConfig = yield (0, plans_1.getPlanConfig)(sub.plan);
+                                const planName = (planConfig === null || planConfig === void 0 ? void 0 : planConfig.name) || sub.plan;
                                 yield email_service_1.emailService.sendSubscriptionActivated(parent.email, parent.name, planName);
-                                // Record referral conversion for influencer tracking
                                 if (invoice.amount_paid > 0) {
                                     try {
                                         const { influencerService } = yield Promise.resolve().then(() => __importStar(require('./influencer.service')));
                                         yield influencerService.recordConversion(sub.parentId, sub.plan, invoice.amount_paid);
                                     }
-                                    catch (_f) {
-                                        // Non-fatal
-                                    }
-                                    // Record conversion for parent-to-parent referral
+                                    catch ( /* Non-fatal */_e) { /* Non-fatal */ }
                                     try {
                                         const { parentReferralService } = yield Promise.resolve().then(() => __importStar(require('./parentReferral.service')));
                                         yield parentReferralService.processConversion(sub.parentId, sub.plan, invoice.amount_paid);
                                     }
-                                    catch (_g) {
-                                        // Non-fatal
-                                    }
+                                    catch ( /* Non-fatal */_f) { /* Non-fatal */ }
                                 }
                             }
                         }
@@ -328,7 +322,7 @@ class SubscriptionService {
                 }
                 case 'invoice.payment_failed': {
                     const invoice = event.data.object;
-                    const failedSubId = (_e = (_d = invoice.parent) === null || _d === void 0 ? void 0 : _d.subscription_details) === null || _e === void 0 ? void 0 : _e.subscription;
+                    const failedSubId = (_d = (_c = invoice.parent) === null || _c === void 0 ? void 0 : _c.subscription_details) === null || _d === void 0 ? void 0 : _d.subscription;
                     if (failedSubId) {
                         const sub = yield subRepo().findOne({ where: { stripeSubscriptionId: String(failedSubId) } });
                         if (sub) {
@@ -348,24 +342,21 @@ class SubscriptionService {
                     if (sub) {
                         const parent = yield parentRepo().findOne({ where: { id: sub.parentId } });
                         if (parent) {
-                            // Stripe sends this 3 days before trial ends
                             yield email_service_1.emailService.sendTrialEndingReminder(parent.email, parent.name, 3);
                         }
                     }
                     break;
                 }
                 default:
-                    // Unhandled event type — safe to ignore
                     break;
             }
         });
     }
-    // ─── Internal: Sync from Stripe subscription object ───────────────────────
+    // ─── Internal: Sync from Stripe ───────────────────────────────────────────
     syncFromStripe(stripeSub) {
         return __awaiter(this, void 0, void 0, function* () {
             const sub = yield subRepo().findOne({ where: { stripeSubscriptionId: stripeSub.id } });
             if (!sub) {
-                // Could be a new subscription created via portal; find by customer ID
                 const byCust = yield subRepo().findOne({ where: { stripeCustomerId: String(stripeSub.customer) } });
                 if (!byCust)
                     return;
@@ -381,7 +372,6 @@ class SubscriptionService {
     applyStripeSubFields(sub, stripeSub) {
         return __awaiter(this, void 0, void 0, function* () {
             var _a, _b, _c, _d;
-            // Map Stripe status to our status
             const statusMap = {
                 active: 'active',
                 trialing: 'trialing',
@@ -398,12 +388,18 @@ class SubscriptionService {
             if (periodEnd) {
                 sub.currentPeriodEnd = new Date(periodEnd * 1000);
             }
-            // Determine plan from price ID
+            // Determine plan and billing interval from the Stripe Price ID — DB-first
             const priceId = (_d = (_c = stripeSub.items.data[0]) === null || _c === void 0 ? void 0 : _c.price) === null || _d === void 0 ? void 0 : _d.id;
             if (priceId) {
-                const matchedPlan = Object.entries(plans_1.PLAN_LIMITS).find(([, p]) => p.priceId === priceId);
-                if (matchedPlan)
-                    sub.plan = matchedPlan[0];
+                const monthlyMatch = yield planRepo().findOne({ where: { stripePriceId: priceId } });
+                const annualMatch = !monthlyMatch
+                    ? yield planRepo().findOne({ where: { stripePriceIdAnnual: priceId } })
+                    : null;
+                const matched = monthlyMatch || annualMatch;
+                if (matched) {
+                    sub.plan = matched.planId;
+                    sub.billingInterval = monthlyMatch ? 'monthly' : 'annual';
+                }
             }
         });
     }

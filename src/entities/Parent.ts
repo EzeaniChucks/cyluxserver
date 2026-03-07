@@ -42,6 +42,26 @@ export class ParentEntity {
     @Column({ type: 'varchar', nullable: true, unique: true })
     ownReferralCode: string | null;
 
+    /** ISO 3166-1 alpha-2 country detected at registration, e.g. 'NG' */
+    @Column({ type: 'varchar', length: 2, nullable: true })
+    country: string | null;
+
+    /** ISO 4217 lowercase currency for Stripe billing — locked at subscription creation */
+    @Column({ type: 'varchar', length: 10, default: 'usd' })
+    currency: string;
+
+    /** BCP-47 locale, e.g. 'en-NG' */
+    @Column({ type: 'varchar', nullable: true })
+    locale: string | null;
+
+    /** True if a VPN/proxy/Tor exit node was detected at registration */
+    @Column({ type: 'boolean', default: false })
+    vpnFlagged: boolean;
+
+    /** Which signals determined the country: 'ip', 'sim+ip', 'ip+timezone', etc. */
+    @Column({ type: 'varchar', nullable: true })
+    detectedVia: string | null;
+
     @OneToMany(() => ChildEntity, child => child.parent)
     children: ChildEntity[];
 

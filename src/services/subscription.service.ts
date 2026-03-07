@@ -2,7 +2,8 @@ import Stripe from 'stripe';
 import { AppDataSource } from '../database';
 import { SubscriptionEntity } from '../entities/Subscription';
 import { ParentEntity } from '../entities/Parent';
-import { PlanId, PLAN_LIMITS, PlanLimits } from '../config/plans';
+import { PlanConfigEntity } from '../entities/PlanConfig';
+import { getPlanConfig, PlanLimits } from '../config/plans';
 import { emailService } from './email.service';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
@@ -11,6 +12,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
 
 const subRepo = () => AppDataSource.getRepository(SubscriptionEntity);
 const parentRepo = () => AppDataSource.getRepository(ParentEntity);
+const planRepo = () => AppDataSource.getRepository(PlanConfigEntity);
 
 export class SubscriptionService {
   // ─── Trial Creation ───────────────────────────────────────────────────────
@@ -22,6 +24,7 @@ export class SubscriptionService {
       parentId,
       plan: 'trial',
       status: 'trialing',
+      billingInterval: 'monthly',
       trialEndsAt,
       stripeCustomerId: null,
       stripeSubscriptionId: null,
@@ -33,18 +36,10 @@ export class SubscriptionService {
 
   // ─── Retrieval ────────────────────────────────────────────────────────────
 
-  /** Returns the subscription for a parent, auto-expiring the trial if needed.
-   *
-   *  If no subscription row exists for a valid parent (e.g. accounts registered
-   *  before the subscription system was introduced, or where the trial-creation
-   *  call failed silently at sign-up), one is created automatically so the user
-   *  is never stuck with a hard "Subscription record not found" error.
-   */
   async getSubscription(parentId: string): Promise<SubscriptionEntity | null> {
     let sub = await subRepo().findOne({ where: { parentId } });
 
     if (!sub) {
-      // Only backfill for parents that actually exist in the DB.
       const parent = await parentRepo().findOne({ where: { id: parentId } });
       if (!parent) return null;
 
@@ -61,23 +56,23 @@ export class SubscriptionService {
   }
 
   /**
-   * Returns the effective plan to use for limit checks.
-   * Returns null if the user has no active/trial subscription (paywalled).
+   * Returns the effective plan slug for limit checks.
+   * Returns null if the subscription is expired/cancelled (paywalled).
    */
-  getEffectivePlan(sub: SubscriptionEntity | null): PlanId | null {
-    if (!sub) return 'trial'; // Defensive: parents with no subscription record get trial access
+  getEffectivePlan(sub: SubscriptionEntity | null): string | null {
+    if (!sub) return 'trial';
     if (sub.status === 'trialing' && sub.trialEndsAt && sub.trialEndsAt > new Date()) {
       return 'trial';
     }
     if (sub.status === 'active' || sub.status === 'past_due') {
-      return sub.plan as PlanId;
+      return sub.plan;
     }
     return null;
   }
 
   // ─── Limit Checks ─────────────────────────────────────────────────────────
 
-  /** Returns { allowed, limit } for any plan feature key. */
+  /** Returns { allowed, limit } for any plan feature key. DB-first via getPlanConfig. */
   async checkLimit(
     parentId: string,
     key: keyof PlanLimits,
@@ -87,7 +82,7 @@ export class SubscriptionService {
 
     if (!planId) return { allowed: false, limit: 0 };
 
-    const limits = PLAN_LIMITS[planId];
+    const limits = await getPlanConfig(planId);
     const value = limits[key] as number | boolean | string | undefined;
 
     if (typeof value === 'boolean') return { allowed: value, limit: value };
@@ -95,33 +90,90 @@ export class SubscriptionService {
     return { allowed: false, limit: 0 };
   }
 
+  // ─── Same-number local currency pricing ──────────────────────────────────
+
+  /**
+   * Currencies stronger than USD that use same-number billing
+   * (e.g. $10 plan → £10, €10, Fr10 charged via Stripe).
+   */
+  static readonly SAME_NUMBER_CURRENCIES = new Set(['EUR', 'GBP', 'CHF']);
+
+  /**
+   * Returns a Stripe Price ID denominated in `currency` with the same unit_amount
+   * as the given USD priceId. Lazily creates and caches the price in plan_config_entity.
+   */
+  private async getOrCreateLocalPrice(
+    planConfig: PlanConfigEntity,
+    usdPriceId: string,
+    currency: string,
+  ): Promise<string> {
+    const cur = currency.toLowerCase();
+
+    const cached = planConfig.localPriceIds?.[cur];
+    if (cached) return cached;
+
+    const usdPrice = await stripe.prices.retrieve(usdPriceId);
+    if (!usdPrice.unit_amount) throw new Error('USD price has no unit_amount');
+
+    const localPrice = await stripe.prices.create({
+      currency: cur,
+      unit_amount: usdPrice.unit_amount, // same numeral, different currency
+      product: usdPrice.product as string,
+      recurring: usdPrice.recurring
+        ? { interval: usdPrice.recurring.interval, interval_count: usdPrice.recurring.interval_count }
+        : undefined,
+      nickname: `${usdPrice.nickname || planConfig.planId} (${currency.toUpperCase()})`.trim(),
+    });
+
+    planConfig.localPriceIds = { ...(planConfig.localPriceIds ?? {}), [cur]: localPrice.id };
+    await planRepo().save(planConfig);
+
+    return localPrice.id;
+  }
+
   // ─── Stripe Subscription Creation ─────────────────────────────────────────
 
   /**
    * Creates a Stripe Customer (if needed) + Subscription in `default_incomplete` mode.
    * Returns the clientSecret for Stripe Payment Sheet.
-   * Accepts an optional promoCode (influencer referral code) to apply a discount coupon.
+   *
+   * Pass `currency` (ISO 4217) for same-number local currency billing.
+   * Strong currencies (EUR, GBP, CHF) are charged the same numeral as the USD price.
+   * All other currencies use the USD priceId directly.
    */
   async createStripeSubscription(
     parentId: string,
     priceId: string,
     promoCode?: string,
+    currency?: string,
   ): Promise<{ clientSecret: string; discountApplied?: number }> {
     const parent = await parentRepo().findOne({ where: { id: parentId } });
     if (!parent) throw new Error('Parent not found');
 
-    // getSubscription() auto-creates a trial record for any valid parent,
-    // so sub will only be null here if the parentId itself doesn't exist
-    // (already guarded by the 'Parent not found' check above).
     const sub = await this.getSubscription(parentId);
     if (!sub) throw new Error('Parent account not found');
 
-    // Validate the priceId is one we recognise
-    const knownPriceIds = Object.values(PLAN_LIMITS)
-      .map(p => p.priceId)
-      .filter(Boolean);
-    if (!knownPriceIds.includes(priceId)) {
-      throw new Error('Invalid plan selected');
+    // Validate priceId against active plans in DB — determines monthly vs annual
+    const monthlyMatch = await planRepo().findOne({
+      where: { stripePriceId: priceId, isActive: true },
+    });
+    const annualMatch = !monthlyMatch
+      ? await planRepo().findOne({ where: { stripePriceIdAnnual: priceId, isActive: true } })
+      : null;
+    const matchedPlan = monthlyMatch || annualMatch;
+
+    if (!matchedPlan) throw new Error('Invalid plan selected');
+    if (matchedPlan.contactSalesOnly) throw new Error('This plan requires contacting sales — no self-serve checkout');
+
+    const billingInterval: 'monthly' | 'annual' = monthlyMatch ? 'monthly' : 'annual';
+
+    // Resolve the effective Stripe price ID.
+    // For strong currencies (EUR, GBP, CHF), lazily create a local-currency price
+    // with the same unit_amount as the USD price (same-number billing).
+    let effectivePriceId = priceId;
+    const upperCurrency = currency?.toUpperCase();
+    if (upperCurrency && SubscriptionService.SAME_NUMBER_CURRENCIES.has(upperCurrency)) {
+      effectivePriceId = await this.getOrCreateLocalPrice(matchedPlan, priceId, upperCurrency);
     }
 
     // Create Stripe customer if not already created
@@ -137,7 +189,7 @@ export class SubscriptionService {
       await subRepo().save(sub);
     }
 
-    // Resolve influencer coupon if promoCode provided (or from parent's stored referralCode)
+    // Resolve influencer coupon
     const codeToApply = promoCode || parent.referralCode || undefined;
     let stripeCouponId: string | null = null;
     let discountApplied: number | undefined;
@@ -151,11 +203,11 @@ export class SubscriptionService {
           discountApplied = validation.discountPercent;
         }
       } catch {
-        // Non-fatal — proceed without discount
+        // Non-fatal
       }
     }
 
-    // If no influencer discount, check for parent-referral discount
+    // Fall back to parent-referral discount
     if (!stripeCouponId) {
       try {
         const { parentReferralService } = await import('./parentReferral.service');
@@ -172,10 +224,9 @@ export class SubscriptionService {
       }
     }
 
-    // Build subscription params
     const subParams: Stripe.SubscriptionCreateParams = {
       customer: customerId,
-      items: [{ price: priceId }],
+      items: [{ price: effectivePriceId }],
       payment_behavior: 'default_incomplete',
       expand: ['latest_invoice.confirmation_secret'],
     };
@@ -184,10 +235,10 @@ export class SubscriptionService {
       subParams.discounts = [{ coupon: stripeCouponId }];
     }
 
-    // Create the subscription in incomplete state so we can collect payment
     const subscription = await stripe.subscriptions.create(subParams);
 
     sub.stripeSubscriptionId = subscription.id;
+    sub.billingInterval = billingInterval;
     await subRepo().save(sub);
 
     const invoice = subscription.latest_invoice as Stripe.Invoice;
@@ -282,25 +333,20 @@ export class SubscriptionService {
 
             const parent = await parentRepo().findOne({ where: { id: sub.parentId } });
             if (parent) {
-              const planName = PLAN_LIMITS[sub.plan as PlanId]?.name || sub.plan;
+              const planConfig = await getPlanConfig(sub.plan);
+              const planName = planConfig?.name || sub.plan;
               await emailService.sendSubscriptionActivated(parent.email, parent.name, planName);
 
-              // Record referral conversion for influencer tracking
               if (invoice.amount_paid > 0) {
                 try {
                   const { influencerService } = await import('./influencer.service');
                   await influencerService.recordConversion(sub.parentId, sub.plan, invoice.amount_paid);
-                } catch {
-                  // Non-fatal
-                }
+                } catch { /* Non-fatal */ }
 
-                // Record conversion for parent-to-parent referral
                 try {
                   const { parentReferralService } = await import('./parentReferral.service');
                   await parentReferralService.processConversion(sub.parentId, sub.plan, invoice.amount_paid);
-                } catch {
-                  // Non-fatal
-                }
+                } catch { /* Non-fatal */ }
               }
             }
           }
@@ -332,7 +378,6 @@ export class SubscriptionService {
         if (sub) {
           const parent = await parentRepo().findOne({ where: { id: sub.parentId } });
           if (parent) {
-            // Stripe sends this 3 days before trial ends
             await emailService.sendTrialEndingReminder(parent.email, parent.name, 3);
           }
         }
@@ -340,17 +385,15 @@ export class SubscriptionService {
       }
 
       default:
-        // Unhandled event type — safe to ignore
         break;
     }
   }
 
-  // ─── Internal: Sync from Stripe subscription object ───────────────────────
+  // ─── Internal: Sync from Stripe ───────────────────────────────────────────
 
   private async syncFromStripe(stripeSub: Stripe.Subscription): Promise<void> {
     const sub = await subRepo().findOne({ where: { stripeSubscriptionId: stripeSub.id } });
     if (!sub) {
-      // Could be a new subscription created via portal; find by customer ID
       const byCust = await subRepo().findOne({ where: { stripeCustomerId: String(stripeSub.customer) } });
       if (!byCust) return;
 
@@ -365,7 +408,6 @@ export class SubscriptionService {
   }
 
   private async applyStripeSubFields(sub: SubscriptionEntity, stripeSub: Stripe.Subscription) {
-    // Map Stripe status to our status
     const statusMap: Record<string, string> = {
       active: 'active',
       trialing: 'trialing',
@@ -384,13 +426,19 @@ export class SubscriptionService {
       sub.currentPeriodEnd = new Date(periodEnd * 1000);
     }
 
-    // Determine plan from price ID
+    // Determine plan and billing interval from the Stripe Price ID — DB-first
     const priceId = stripeSub.items.data[0]?.price?.id;
     if (priceId) {
-      const matchedPlan = (Object.entries(PLAN_LIMITS) as [PlanId, PlanLimits][]).find(
-        ([, p]) => p.priceId === priceId,
-      );
-      if (matchedPlan) sub.plan = matchedPlan[0];
+      const monthlyMatch = await planRepo().findOne({ where: { stripePriceId: priceId } });
+      const annualMatch = !monthlyMatch
+        ? await planRepo().findOne({ where: { stripePriceIdAnnual: priceId } })
+        : null;
+      const matched = monthlyMatch || annualMatch;
+
+      if (matched) {
+        sub.plan = matched.planId;
+        sub.billingInterval = monthlyMatch ? 'monthly' : 'annual';
+      }
     }
   }
 }

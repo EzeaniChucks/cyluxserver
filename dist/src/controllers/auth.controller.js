@@ -11,21 +11,35 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AuthController = void 0;
 const auth_service_1 = require("../services/auth.service");
+const geo_service_1 = require("../services/geo.service");
 const response_1 = require("../utils/response");
 class AuthController {
     constructor() {
         this.authService = new auth_service_1.AuthService();
         this.register = (req, res) => __awaiter(this, void 0, void 0, function* () {
             try {
-                const { email, password, name, referralCode } = req.body;
+                const { email, password, name, referralCode, timezone, locale, simMcc } = req.body;
                 if (!email || !password || !name) {
                     return response_1.ApiResponse.error(res, 'Missing registration fields', 400);
                 }
-                const result = yield this.authService.register({ email, password, name, referralCode });
+                // Geo detection runs server-side — client signals are hints only;
+                // the actual IP (not client-supplied) is the authoritative source.
+                const geo = yield geo_service_1.geoService.detect(req, { timezone, locale, simMcc });
+                const result = yield this.authService.register(Object.assign({ email, password, name, referralCode }, geo));
                 return response_1.ApiResponse.success(res, result, 'Account created successfully', 201);
             }
             catch (error) {
                 return response_1.ApiResponse.error(res, error.message, 400);
+            }
+        });
+        this.detectLocale = (req, res) => __awaiter(this, void 0, void 0, function* () {
+            try {
+                const { timezone, locale, simMcc } = req.body;
+                const result = yield geo_service_1.geoService.detect(req, { timezone, locale, simMcc });
+                return response_1.ApiResponse.success(res, result, 'Locale detected');
+            }
+            catch (error) {
+                return response_1.ApiResponse.error(res, error.message);
             }
         });
         this.login = (req, res) => __awaiter(this, void 0, void 0, function* () {

@@ -20,7 +20,9 @@ router.delete('/parents/:id', (0, auth_1.protectAdmin)(['superadmin']), admin_co
 router.get('/subscriptions', (0, auth_1.protectAdmin)(['superadmin', 'admin', 'support']), admin_controller_1.adminController.getSubscriptions);
 // Plans
 router.get('/plans', (0, auth_1.protectAdmin)(['superadmin', 'admin', 'support']), admin_controller_1.adminController.getPlans);
+router.post('/plans', (0, auth_1.protectAdmin)(['superadmin']), admin_controller_1.adminController.createPlan);
 router.patch('/plans/:planId', (0, auth_1.protectAdmin)(['superadmin']), admin_controller_1.adminController.updatePlan);
+router.delete('/plans/:planId', (0, auth_1.protectAdmin)(['superadmin']), admin_controller_1.adminController.deactivatePlan);
 // Parent Referral Program Config
 router.get('/parent-referral-config', (0, auth_1.protectAdmin)(['superadmin', 'admin']), admin_controller_1.adminController.getParentReferralConfig);
 router.patch('/parent-referral-config', (0, auth_1.protectAdmin)(['superadmin']), admin_controller_1.adminController.updateParentReferralConfig);

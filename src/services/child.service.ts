@@ -3,7 +3,9 @@ import { ChildEntity } from "../entities/Child";
 import { CommandEntity } from "../entities/Command";
 import { AuditLogEntity } from "../entities/AuditLog";
 import { AlertEntity } from "../entities/Alert";
+import { RewardEntity } from "../entities/Reward";
 import { NotificationService } from "./notification.service";
+import { SmartDeviceService } from "./smartDevice.service";
 import { Between, In, LessThan, MoreThan } from "typeorm";
 
 const alertRepo = () => AppDataSource.getRepository(AlertEntity);
@@ -52,6 +54,9 @@ export class ChildService {
           where: { childId, status: "pending" },
           order: { createdAt: "ASC" },
         });
+        const rewardRepo = manager.getRepository(RewardEntity);
+        const pendingRewards = await rewardRepo.find({ where: { childId, claimed: false } });
+        const pendingRewardMinutes = pendingRewards.reduce((sum, r) => sum + r.minutes, 0);
         const dedupEffectiveStatus =
           child.dailyLimitMinutes > 0 && child.usedMinutes >= child.dailyLimitMinutes
             ? "paused"
@@ -68,6 +73,7 @@ export class ChildService {
             blockedApps: child.blockedApps,
             geofences: child.geofences,
             schedules: child.schedules,
+            pendingRewardMinutes,
           },
           commands: commands.map((c) => ({ id: c.id, type: c.type, payload: c.payload })),
         };
@@ -245,6 +251,11 @@ export class ChildService {
         );
       }
 
+      // --- Pending reward minutes ---
+      const rewardRepo = manager.getRepository(RewardEntity);
+      const pendingRewards = await rewardRepo.find({ where: { childId, claimed: false } });
+      const pendingRewardMinutes = pendingRewards.reduce((sum, r) => sum + r.minutes, 0);
+
       // If the daily limit has been reached, the device must be locked system-wide
       // regardless of the parent-set status. The native updateLocalPolicy() triggers
       // showHardLockOverlay() when status === "paused", so returning "paused" here
@@ -267,6 +278,7 @@ export class ChildService {
           blockedApps: child.blockedApps,
           geofences: child.geofences,
           schedules: child.schedules,
+          pendingRewardMinutes,
         },
         commands: commands.map((c) => ({ id: c.id, type: c.type, payload: c.payload })),
       };
@@ -345,6 +357,17 @@ export class ChildService {
       await this.childRepo.update(childId, { status: "paused" });
     } else if (type === "UNLOCK") {
       await this.childRepo.update(childId, { status: "active" });
+    }
+
+    // Fire-and-forget: power the linked Samsung/LG TV off on LOCK, on on UNLOCK.
+    // Errors are swallowed so a misconfigured smart device never blocks the command.
+    if (type === "LOCK" || type === "UNLOCK") {
+      const action = type === "LOCK" ? "off" : "on";
+      new SmartDeviceService()
+        .controlByChild(childId, action)
+        .catch((e: Error) =>
+          console.warn(`[SmartDevice] Auto-control failed for child ${childId}: ${e.message}`)
+        );
     }
 
     return command;

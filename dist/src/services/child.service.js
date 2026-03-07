@@ -16,6 +16,7 @@ const Command_1 = require("../entities/Command");
 const AuditLog_1 = require("../entities/AuditLog");
 const Alert_1 = require("../entities/Alert");
 const notification_service_1 = require("./notification.service");
+const smartDevice_service_1 = require("./smartDevice.service");
 const typeorm_1 = require("typeorm");
 const alertRepo = () => database_1.AppDataSource.getRepository(Alert_1.AlertEntity);
 const ALLOWED_COMMAND_TYPES = [
@@ -294,6 +295,14 @@ class ChildService {
             }
             else if (type === "UNLOCK") {
                 yield this.childRepo.update(childId, { status: "active" });
+            }
+            // Fire-and-forget: power the linked Samsung/LG TV off on LOCK, on on UNLOCK.
+            // Errors are swallowed so a misconfigured smart device never blocks the command.
+            if (type === "LOCK" || type === "UNLOCK") {
+                const action = type === "LOCK" ? "off" : "on";
+                new smartDevice_service_1.SmartDeviceService()
+                    .controlByChild(childId, action)
+                    .catch((e) => console.warn(`[SmartDevice] Auto-control failed for child ${childId}: ${e.message}`));
             }
             return command;
         });

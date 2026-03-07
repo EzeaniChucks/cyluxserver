@@ -61,6 +61,7 @@ const subscription_routes_1 = __importDefault(require("./routes/subscription.rou
 const admin_routes_1 = __importDefault(require("./routes/admin.routes"));
 const influencer_routes_1 = __importDefault(require("./routes/influencer.routes"));
 const wallet_routes_1 = __importDefault(require("./routes/wallet.routes"));
+const smartDevice_routes_1 = __importDefault(require("./routes/smartDevice.routes"));
 const subscription_controller_1 = require("./controllers/subscription.controller");
 const logger_1 = require("./middlewares/logger");
 const error_1 = require("./middlewares/error");
@@ -140,6 +141,7 @@ app.use("/api/subscription", subscription_routes_1.default);
 app.use("/api/admin", admin_routes_1.default);
 app.use("/api/influencer", influencer_routes_1.default);
 app.use("/api/wallet", wallet_routes_1.default);
+app.use("/api/smart-devices", smartDevice_routes_1.default);
 app.use(error_1.errorHandler);
 const startBackgroundTasks = () => {
     const childService = new child_service_1.ChildService();

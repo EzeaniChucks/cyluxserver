@@ -8,6 +8,17 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __rest = (this && this.__rest) || function (s, e) {
+    var t = {};
+    for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p) && e.indexOf(p) < 0)
+        t[p] = s[p];
+    if (s != null && typeof Object.getOwnPropertySymbols === "function")
+        for (var i = 0, p = Object.getOwnPropertySymbols(s); i < p.length; i++) {
+            if (e.indexOf(p[i]) < 0 && Object.prototype.propertyIsEnumerable.call(s, p[i]))
+                t[p[i]] = s[p[i]];
+        }
+    return t;
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -21,7 +32,6 @@ const Parent_1 = require("../entities/Parent");
 const Subscription_1 = require("../entities/Subscription");
 const PlanConfig_1 = require("../entities/PlanConfig");
 const Referral_1 = require("../entities/Referral");
-const plans_1 = require("../config/plans");
 const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET;
 const ADMIN_JWT_REFRESH_SECRET = process.env.ADMIN_JWT_REFRESH_SECRET || process.env.ADMIN_JWT_SECRET;
 const adminRepo = () => database_1.AppDataSource.getRepository(Admin_1.AdminEntity);
@@ -35,26 +45,36 @@ class AdminService {
         return __awaiter(this, void 0, void 0, function* () {
             const existing = yield adminRepo().count();
             if (existing > 0)
-                throw new Error('Admin already seeded');
+                throw new Error("Admin already seeded");
             const passwordHash = yield bcryptjs_1.default.hash(data.password, 12);
-            const admin = adminRepo().create(Object.assign(Object.assign({}, data), { passwordHash, role: 'superadmin' }));
+            const admin = adminRepo().create(Object.assign(Object.assign({}, data), { passwordHash, role: "superadmin" }));
             return adminRepo().save(admin);
         });
     }
     login(email, password) {
         return __awaiter(this, void 0, void 0, function* () {
             if (!ADMIN_JWT_SECRET)
-                throw new Error('ADMIN_JWT_SECRET not configured');
-            const admin = yield adminRepo().findOne({ where: { email: email.toLowerCase().trim() } });
+                throw new Error("ADMIN_JWT_SECRET not configured");
+            const admin = yield adminRepo().findOne({
+                where: { email: email.toLowerCase().trim() },
+            });
             if (!admin || !admin.isActive)
-                throw new Error('Invalid credentials');
+                throw new Error("Invalid credentials");
             const valid = yield bcryptjs_1.default.compare(password, admin.passwordHash);
             if (!valid)
-                throw new Error('Invalid credentials');
+                throw new Error("Invalid credentials");
             admin.lastLoginAt = new Date();
             yield adminRepo().save(admin);
-            const token = jsonwebtoken_1.default.sign({ id: admin.id, role: admin.role }, ADMIN_JWT_SECRET, { expiresIn: '8h' });
-            return { token, admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role } };
+            const token = jsonwebtoken_1.default.sign({ id: admin.id, role: admin.role }, ADMIN_JWT_SECRET, { expiresIn: "8h" });
+            return {
+                token,
+                admin: {
+                    id: admin.id,
+                    email: admin.email,
+                    name: admin.name,
+                    role: admin.role,
+                },
+            };
         });
     }
     // ─── Stats ────────────────────────────────────────────────────────────────
@@ -62,39 +82,46 @@ class AdminService {
         return __awaiter(this, void 0, void 0, function* () {
             const totalParents = yield parentRepo().count();
             const totalSubs = yield subRepo().count();
-            const activeSubs = yield subRepo().count({ where: { status: 'active' } });
-            const trialingSubs = yield subRepo().count({ where: { status: 'trialing' } });
+            const activeSubs = yield subRepo().count({ where: { status: "active" } });
+            const trialingSubs = yield subRepo().count({
+                where: { status: "trialing" },
+            });
             const totalReferrals = yield referralRepo().count();
-            const totalConversions = yield referralRepo().count({ where: { status: 'subscribed' } });
+            const totalConversions = yield referralRepo().count({
+                where: { status: "subscribed" },
+            });
             // MRR from active subscriptions grouped by plan
             const activeSubsByPlan = yield subRepo()
-                .createQueryBuilder('sub')
-                .select('sub.plan', 'plan')
-                .addSelect('COUNT(*)', 'count')
-                .where('sub.status = :status', { status: 'active' })
-                .groupBy('sub.plan')
+                .createQueryBuilder("sub")
+                .select("sub.plan", "plan")
+                .addSelect("COUNT(*)", "count")
+                .where("sub.status = :status", { status: "active" })
+                .groupBy("sub.plan")
                 .getRawMany();
+            // Load all plan configs once to avoid N+1 queries
+            const allPlanConfigs = yield planConfigRepo().find();
+            const configByPlan = new Map(allPlanConfigs.map((c) => [c.planId, c]));
             let mrr = 0;
             const subsByPlan = {};
             for (const row of activeSubsByPlan) {
                 const count = parseInt(row.count, 10);
                 subsByPlan[row.plan] = count;
-                const planConfig = plans_1.PLAN_LIMITS[row.plan];
+                const planConfig = configByPlan.get(row.plan);
                 if (planConfig === null || planConfig === void 0 ? void 0 : planConfig.price)
                     mrr += planConfig.price * count;
             }
-            const conversionRate = totalParents > 0 ? ((activeSubs / totalParents) * 100).toFixed(1) : '0.0';
+            const conversionRate = totalParents > 0 ? ((activeSubs / totalParents) * 100).toFixed(1) : "0.0";
             // Recent signups (last 30 days)
             const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
             const recentSignups = yield parentRepo()
-                .createQueryBuilder('p')
-                .select(['p.id', 'p.name', 'p.email'])
-                .addSelect('sub.plan', 'plan')
-                .addSelect('sub.status', 'subStatus')
-                .addSelect('sub.createdAt', 'joinedAt')
-                .leftJoin('p.subscription', 'sub')
-                .where('sub.createdAt >= :from', { from: thirtyDaysAgo })
-                .orderBy('sub.createdAt', 'DESC')
+                .createQueryBuilder("p")
+                .select(["p.id", "p.name", "p.email"])
+                .addSelect("sub.plan", "plan")
+                .addSelect("sub.status", "subStatus")
+                .addSelect("sub.createdAt", "joinedAt")
+                .leftJoin("p.subscription", "sub")
+                .where("sub.createdAt >= :from", { from: thirtyDaysAgo })
+                .orderBy("sub.createdAt", "DESC")
                 .limit(20)
                 .getRawMany();
             return {
@@ -118,18 +145,20 @@ class AdminService {
             const limit = Math.min(opts.limit || 20, 100);
             const skip = (page - 1) * limit;
             const qb = parentRepo()
-                .createQueryBuilder('p')
-                .leftJoinAndSelect('p.subscription', 'sub')
+                .createQueryBuilder("p")
+                .leftJoinAndSelect("p.subscription", "sub")
                 .skip(skip)
                 .take(limit)
-                .orderBy('sub.createdAt', 'DESC');
+                .orderBy("sub.createdAt", "DESC");
             if (opts.search) {
-                qb.where('(LOWER(p.email) LIKE :s OR LOWER(p.name) LIKE :s)', { s: `%${opts.search.toLowerCase()}%` });
+                qb.where("(LOWER(p.email) LIKE :s OR LOWER(p.name) LIKE :s)", {
+                    s: `%${opts.search.toLowerCase()}%`,
+                });
             }
             if (opts.plan)
-                qb.andWhere('sub.plan = :plan', { plan: opts.plan });
+                qb.andWhere("sub.plan = :plan", { plan: opts.plan });
             if (opts.status)
-                qb.andWhere('sub.status = :status', { status: opts.status });
+                qb.andWhere("sub.status = :status", { status: opts.status });
             const [items, total] = yield qb.getManyAndCount();
             return { items, total, page, limit, pages: Math.ceil(total / limit) };
         });
@@ -138,7 +167,7 @@ class AdminService {
         return __awaiter(this, void 0, void 0, function* () {
             return parentRepo().findOne({
                 where: { id },
-                relations: ['subscription', 'children'],
+                relations: ["subscription", "children"],
             });
         });
     }
@@ -146,7 +175,7 @@ class AdminService {
         return __awaiter(this, void 0, void 0, function* () {
             const parent = yield parentRepo().findOne({ where: { id } });
             if (!parent)
-                throw new Error('Parent not found');
+                throw new Error("Parent not found");
             if (data.name)
                 parent.name = data.name;
             if (data.email)
@@ -158,15 +187,17 @@ class AdminService {
         return __awaiter(this, void 0, void 0, function* () {
             const sub = yield subRepo().findOne({ where: { parentId } });
             if (!sub)
-                throw new Error('Subscription not found');
+                throw new Error("Subscription not found");
             if (data.plan)
                 sub.plan = data.plan;
             if (data.status)
                 sub.status = data.status;
             if (data.trialExtendDays) {
-                const base = sub.trialEndsAt && sub.trialEndsAt > new Date() ? sub.trialEndsAt : new Date();
+                const base = sub.trialEndsAt && sub.trialEndsAt > new Date()
+                    ? sub.trialEndsAt
+                    : new Date();
                 sub.trialEndsAt = new Date(base.getTime() + data.trialExtendDays * 24 * 60 * 60 * 1000);
-                sub.status = 'trialing';
+                sub.status = "trialing";
             }
             return subRepo().save(sub);
         });
@@ -175,7 +206,7 @@ class AdminService {
         return __awaiter(this, void 0, void 0, function* () {
             const parent = yield parentRepo().findOne({ where: { id } });
             if (!parent)
-                throw new Error('Parent not found');
+                throw new Error("Parent not found");
             yield parentRepo().remove(parent);
         });
     }
@@ -186,16 +217,16 @@ class AdminService {
             const limit = Math.min(opts.limit || 20, 100);
             const skip = (page - 1) * limit;
             const qb = subRepo()
-                .createQueryBuilder('sub')
-                .leftJoin('sub.parent', 'p')
-                .addSelect(['p.id', 'p.name', 'p.email'])
+                .createQueryBuilder("sub")
+                .leftJoin("sub.parent", "p")
+                .addSelect(["p.id", "p.name", "p.email"])
                 .skip(skip)
                 .take(limit)
-                .orderBy('sub.createdAt', 'DESC');
+                .orderBy("sub.createdAt", "DESC");
             if (opts.plan)
-                qb.where('sub.plan = :plan', { plan: opts.plan });
+                qb.where("sub.plan = :plan", { plan: opts.plan });
             if (opts.status)
-                qb.andWhere('sub.status = :status', { status: opts.status });
+                qb.andWhere("sub.status = :status", { status: opts.status });
             const [items, total] = yield qb.getManyAndCount();
             return { items, total, page, limit, pages: Math.ceil(total / limit) };
         });
@@ -203,15 +234,65 @@ class AdminService {
     // ─── Plan Configs ─────────────────────────────────────────────────────────
     getPlanConfigs() {
         return __awaiter(this, void 0, void 0, function* () {
-            return planConfigRepo().find({ order: { planId: 'ASC' } });
+            return planConfigRepo().find({ order: { planId: "ASC" } });
         });
     }
     updatePlanConfig(planId, data, adminId) {
         return __awaiter(this, void 0, void 0, function* () {
-            let config = yield planConfigRepo().findOne({ where: { planId } });
+            const config = yield planConfigRepo().findOne({ where: { planId } });
             if (!config)
-                throw new Error('Plan config not found');
-            Object.assign(config, data, { updatedByAdminId: adminId });
+                throw new Error("Plan not found");
+            // planId is immutable — strip it from the update payload
+            const _a = data, { planId: _ignored } = _a, safeData = __rest(_a, ["planId"]);
+            Object.assign(config, safeData, { updatedByAdminId: adminId });
+            return planConfigRepo().save(config);
+        });
+    }
+    createPlanConfig(data, adminId) {
+        return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b, _c, _d, _e;
+            if (!/^[a-z0-9_]+$/.test(data.planId)) {
+                throw new Error("planId must contain only lowercase letters, numbers, and underscores");
+            }
+            if (data.planId === "trial") {
+                throw new Error("'trial' is a reserved plan ID");
+            }
+            const existing = yield planConfigRepo().findOne({
+                where: { planId: data.planId },
+            });
+            if (existing)
+                throw new Error(`A plan with ID '${data.planId}' already exists`);
+            const config = planConfigRepo().create(Object.assign(Object.assign({}, data), { price: (_a = data.price) !== null && _a !== void 0 ? _a : null, stripePriceId: (_b = data.stripePriceId) !== null && _b !== void 0 ? _b : null, stripePriceIdAnnual: (_c = data.stripePriceIdAnnual) !== null && _c !== void 0 ? _c : null, contactSalesOnly: (_d = data.contactSalesOnly) !== null && _d !== void 0 ? _d : false, trialDays: (_e = data.trialDays) !== null && _e !== void 0 ? _e : 0, isActive: true, updatedByAdminId: adminId }));
+            return planConfigRepo().save(config);
+        });
+    }
+    /**
+     * Soft-deletes a plan by setting isActive = false.
+     * Blocked if any subscribers are currently active on the plan.
+     * Hard-deletes are never allowed — existing subscription rows reference the plan slug.
+     */
+    deactivatePlanConfig(planId, adminId) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (planId === "trial")
+                throw new Error("The 'trial' plan cannot be deactivated");
+            const config = yield planConfigRepo().findOne({ where: { planId } });
+            if (!config)
+                throw new Error("Plan not found");
+            if (!config.isActive)
+                throw new Error("Plan is already inactive");
+            const activeCount = yield subRepo()
+                .createQueryBuilder("sub")
+                .where("sub.plan = :planId", { planId })
+                .andWhere("sub.status IN (:...statuses)", {
+                statuses: ["active", "past_due", "trialing"],
+            })
+                .getCount();
+            if (activeCount > 0) {
+                throw new Error(`Cannot deactivate: ${activeCount} subscriber(s) are currently on this plan. ` +
+                    `Migrate them to another plan first via the subscriptions panel.`);
+            }
+            config.isActive = false;
+            config.updatedByAdminId = adminId;
             return planConfigRepo().save(config);
         });
     }
@@ -219,17 +300,24 @@ class AdminService {
     getRevenue() {
         return __awaiter(this, void 0, void 0, function* () {
             const activeSubsByPlan = yield subRepo()
-                .createQueryBuilder('sub')
-                .select('sub.plan', 'plan')
-                .addSelect('COUNT(*)', 'count')
-                .where('sub.status = :status', { status: 'active' })
-                .groupBy('sub.plan')
+                .createQueryBuilder("sub")
+                .select("sub.plan", "plan")
+                .addSelect("COUNT(*)", "count")
+                .where("sub.status = :status", { status: "active" })
+                .groupBy("sub.plan")
                 .getRawMany();
-            const byPlan = activeSubsByPlan.map(row => {
+            const allConfigs = yield planConfigRepo().find();
+            const configMap = new Map(allConfigs.map((c) => [c.planId, c]));
+            const byPlan = activeSubsByPlan.map((row) => {
                 var _a;
                 const count = parseInt(row.count, 10);
-                const price = ((_a = plans_1.PLAN_LIMITS[row.plan]) === null || _a === void 0 ? void 0 : _a.price) || 0;
-                return { plan: row.plan, count, price, mrr: parseFloat((price * count).toFixed(2)) };
+                const price = ((_a = configMap.get(row.plan)) === null || _a === void 0 ? void 0 : _a.price) || 0;
+                return {
+                    plan: row.plan,
+                    count,
+                    price,
+                    mrr: parseFloat((price * count).toFixed(2)),
+                };
             });
             const totalMrr = byPlan.reduce((sum, p) => sum + p.mrr, 0);
             return { totalMrr: parseFloat(totalMrr.toFixed(2)), byPlan };

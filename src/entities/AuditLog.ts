@@ -46,6 +46,11 @@ export class AuditLogEntity {
       "VPN_STATUS", // VPN status
       "SOS_PANIC", // Child-triggered SOS emergency
       "UNLOCK_REQUEST", // Child requesting extra screen time from lock screen
+      "YOUTUBE_WATCH", // YouTube video watched (title captured)
+      "YOUTUBE_SEARCH", // YouTube search performed
+      "NOTIFICATION_RECEIVED", // Notification content captured
+      "CALL_LOG", // Call log entry (incoming/outgoing/missed)
+      "SMS_RECEIVED", // SMS message content captured
     ],
   })
   actionType: string;

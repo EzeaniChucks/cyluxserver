@@ -40,8 +40,8 @@ export class ChildEntity {
   @Column({ nullable: true })
   fcmToken: string;
 
-  @Column({ type: "enum", enum: ["ios", "android"], nullable: true })
-  deviceType: "ios" | "android";
+  @Column({ type: "varchar", nullable: true })
+  deviceType: "ios" | "android" | "android_tv" | "tvos" | null;
 
   @Column("jsonb", { nullable: true })
   location: { lat: number; lng: number };

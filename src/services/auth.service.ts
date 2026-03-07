@@ -18,7 +18,17 @@ if (!JWT_SECRET || !JWT_REFRESH_SECRET) {
 export class AuthService {
   private parentRepo = AppDataSource.getRepository(ParentEntity);
 
-  async register(data: { email: string; name: string; password: string; referralCode?: string }) {
+  async register(data: {
+    email: string;
+    name: string;
+    password: string;
+    referralCode?: string;
+    country?: string;
+    currency?: string;
+    locale?: string;
+    vpnFlagged?: boolean;
+    detectedVia?: string;
+  }) {
     if (!data.email || !data.name || !data.password) {
       throw new Error("All registration fields are required");
     }
@@ -64,6 +74,11 @@ export class AuthService {
       name: data.name.trim(),
       passwordHash,
       referralCode: validatedReferralCode,
+      country: data.country ?? null,
+      currency: data.currency ?? 'usd',
+      locale: data.locale ?? null,
+      vpnFlagged: data.vpnFlagged ?? false,
+      detectedVia: data.detectedVia ?? null,
     });
 
     await this.parentRepo.save(parent);

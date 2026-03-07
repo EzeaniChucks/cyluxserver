@@ -37,6 +37,10 @@ __decorate([
     __metadata("design:type", String)
 ], SubscriptionEntity.prototype, "status", void 0);
 __decorate([
+    (0, typeorm_1.Column)({ type: 'varchar', default: 'monthly' }),
+    __metadata("design:type", String)
+], SubscriptionEntity.prototype, "billingInterval", void 0);
+__decorate([
     (0, typeorm_1.Column)({ type: 'timestamp', nullable: true }),
     __metadata("design:type", Object)
 ], SubscriptionEntity.prototype, "trialEndsAt", void 0);

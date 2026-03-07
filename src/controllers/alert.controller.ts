@@ -22,8 +22,11 @@ export class AlertController {
       const { childId } = req.params;
       const parentId = req.user?.id;
       if (!parentId) return ApiResponse.error(res, 'Unauthorized', 401);
-      const { page = 1, limit = 100 } = req.query;
-      const result = await this.alertService.getLogsByChildId(childId, parentId, Number(page), Number(limit));
+      const { page = 1, limit = 100, actionType } = req.query;
+      const result = await this.alertService.getLogsByChildId(
+        childId, parentId, Number(page), Number(limit),
+        typeof actionType === 'string' ? actionType : undefined,
+      );
       return ApiResponse.success(res, result);
     } catch (error: any) {
       return ApiResponse.error(res, error.message);

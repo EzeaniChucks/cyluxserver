@@ -67,6 +67,14 @@ __decorate([
     __metadata("design:type", Object)
 ], PlanConfigEntity.prototype, "stripePriceId", void 0);
 __decorate([
+    (0, typeorm_1.Column)({ type: 'varchar', nullable: true }),
+    __metadata("design:type", Object)
+], PlanConfigEntity.prototype, "stripePriceIdAnnual", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ default: false }),
+    __metadata("design:type", Boolean)
+], PlanConfigEntity.prototype, "contactSalesOnly", void 0);
+__decorate([
     (0, typeorm_1.Column)('int', { default: 0 }),
     __metadata("design:type", Number)
 ], PlanConfigEntity.prototype, "trialDays", void 0);
