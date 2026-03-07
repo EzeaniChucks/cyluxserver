@@ -55,7 +55,7 @@ exports.getPlansForClient = getPlansForClient;
 exports.PLAN_LIMITS = {
     trial: {
         name: 'Free Trial',
-        description: '7-day Premium trial — no credit card required',
+        description: '3-day Premium trial — no credit card required',
         price: 0,
         maxDevices: 3,
         maxGeofences: 5,
@@ -209,7 +209,7 @@ function seedPlanConfigs() {
                     stripePriceId: (_b = plan.priceId) !== null && _b !== void 0 ? _b : null,
                     stripePriceIdAnnual: (_c = plan.stripePriceIdAnnual) !== null && _c !== void 0 ? _c : null,
                     contactSalesOnly: (_d = plan.contactSalesOnly) !== null && _d !== void 0 ? _d : false,
-                    trialDays: planId === 'trial' ? 7 : 0,
+                    trialDays: planId === 'trial' ? 3 : 0,
                 }));
             }
             console.log('[Plans] Seeded plan configs from defaults');

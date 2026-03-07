@@ -116,7 +116,7 @@ class AuthService {
                 detectedVia: (_e = data.detectedVia) !== null && _e !== void 0 ? _e : null,
             });
             yield this.parentRepo.save(parent);
-            // Create 7-day Premium trial subscription (no credit card required)
+            // Create 3-day Premium trial subscription (no credit card required)
             yield subscription_service_1.subscriptionService.createTrialSubscription(parent.id);
             // Record referral registration
             if (validatedReferralCode) {

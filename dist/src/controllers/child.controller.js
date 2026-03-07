@@ -18,7 +18,7 @@ const Command_1 = require("../entities/Command");
 const AuditLog_1 = require("../entities/AuditLog");
 const VALID_COMMAND_TYPES = [
     'LOCK', 'UNLOCK', 'PLAY_SIREN', 'SYNC_POLICY', 'WIPE_BROWSER',
-    'TAKE_SCREENSHOT', 'REMOTE_WIPE', 'REBOOT', 'INVENTORY_SCAN',
+    'REMOTE_WIPE', 'REBOOT', 'INVENTORY_SCAN',
 ];
 class ChildController {
     constructor() {
@@ -181,6 +181,16 @@ class ChildController {
             }
             catch (error) {
                 return response_1.ApiResponse.error(res, error.message);
+            }
+        });
+        this.getDevicePolicy = (req, res) => __awaiter(this, void 0, void 0, function* () {
+            try {
+                const childId = req.deviceId;
+                const policy = yield this.childService.getDevicePolicy(childId);
+                return response_1.ApiResponse.success(res, policy, 'Policy fetched');
+            }
+            catch (error) {
+                return response_1.ApiResponse.error(res, error.message, 404);
             }
         });
     }

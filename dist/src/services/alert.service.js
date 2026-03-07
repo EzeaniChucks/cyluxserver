@@ -23,6 +23,7 @@ const VALID_ACTION_TYPES = [
     'BATTERY_UPDATE', 'TAMPER_DETECTED', 'SETTING_CHANGED', 'VPN_STATUS',
     'SOS_PANIC', 'UNLOCK_REQUEST',
     'YOUTUBE_WATCH', 'YOUTUBE_SEARCH', 'NOTIFICATION_RECEIVED',
+    'CALL_LOG', 'SMS_RECEIVED', 'WEB_HISTORY',
 ];
 // Social/messaging app packages whose notifications are flagged for parents
 const FLAGGED_NOTIFICATION_PACKAGES = new Set([

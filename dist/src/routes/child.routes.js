@@ -76,6 +76,10 @@ router.post("/pair", rateLimiter_1.pairingLimiter, (req, res) => __awaiter(void 
     }
 }));
 // --- Child Device Routes (all protected by device JWT) ---
+// GET /children/:childId — device policy fetch.
+// Used by checkPairing (verify device is still enrolled) and initializePolicy
+// (LockScreen JS polling on iOS where no native background service is available).
+router.get("/:childId", auth_1.protectChild, childController.getDevicePolicy);
 router.post("/:childId/heartbeat", auth_1.protectChild, childController.heartbeat);
 router.post("/:childId/command/:commandId/ack", auth_1.protectChild, childController.acknowledgeCommand);
 // Claim all pending reward minutes (child initiates from lock screen)

@@ -50,6 +50,20 @@ router.post("/pairing-code", (req, res) => __awaiter(void 0, void 0, void 0, fun
         return response_1.ApiResponse.error(res, e.message);
     }
 }));
+// --- Single child detail (parent-scoped, includes appUsage) ---
+router.get("/children/:childId", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const child = yield childRepo.findOne({
+            where: { id: req.params.childId, parent: { id: req.user.id } },
+        });
+        if (!child)
+            return response_1.ApiResponse.error(res, "Child not found", 404);
+        return response_1.ApiResponse.success(res, child);
+    }
+    catch (e) {
+        return response_1.ApiResponse.error(res, e.message);
+    }
+}));
 // --- Reward system ---
 // POST: grant bonus screen time to a child
 router.post("/children/:childId/rewards", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
