@@ -83,7 +83,7 @@ export class AuthService {
 
     await this.parentRepo.save(parent);
 
-    // Create 7-day Premium trial subscription (no credit card required)
+    // Create 3-day Premium trial subscription (no credit card required)
     await subscriptionService.createTrialSubscription(parent.id);
 
     // Record referral registration

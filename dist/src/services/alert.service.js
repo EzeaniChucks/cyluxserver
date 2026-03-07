@@ -22,7 +22,19 @@ const VALID_ACTION_TYPES = [
     'INVENTORY_SCAN', 'POLICY_SYNC', 'COMMAND_EXECUTED', 'LOCATION_UPDATE',
     'BATTERY_UPDATE', 'TAMPER_DETECTED', 'SETTING_CHANGED', 'VPN_STATUS',
     'SOS_PANIC', 'UNLOCK_REQUEST',
+    'YOUTUBE_WATCH', 'YOUTUBE_SEARCH', 'NOTIFICATION_RECEIVED',
 ];
+// Social/messaging app packages whose notifications are flagged for parents
+const FLAGGED_NOTIFICATION_PACKAGES = new Set([
+    'com.whatsapp', 'com.whatsapp.w4b',
+    'com.instagram.android',
+    'com.facebook.katana', 'com.facebook.lite',
+    'com.snapchat.android',
+    'com.zhiliaoapp.musically', // TikTok
+    'com.discord',
+    'org.telegram.messenger',
+    'com.twitter.android', 'com.x.android',
+]);
 class AlertService {
     constructor() {
         this.alertRepo = database_1.AppDataSource.getRepository(Alert_1.AlertEntity);
@@ -44,7 +56,7 @@ class AlertService {
         });
     }
     getLogsByChildId(childId_1, parentId_1) {
-        return __awaiter(this, arguments, void 0, function* (childId, parentId, page = 1, limit = 100) {
+        return __awaiter(this, arguments, void 0, function* (childId, parentId, page = 1, limit = 100, actionType) {
             // Verify this child belongs to the requesting parent
             const child = yield this.childRepo.findOne({
                 where: { id: childId, parent: { id: parentId } },
@@ -52,8 +64,12 @@ class AlertService {
             if (!child)
                 throw new Error('Child not found or access denied');
             const safeLimit = Math.min(limit, 500);
+            const where = { childId };
+            if (actionType && VALID_ACTION_TYPES.includes(actionType)) {
+                where.actionType = actionType;
+            }
             const [logs, total] = yield this.logRepo.findAndCount({
-                where: { childId },
+                where,
                 order: { timestamp: 'DESC' },
                 take: safeLimit,
                 skip: (page - 1) * safeLimit,
@@ -63,6 +79,7 @@ class AlertService {
     }
     createLog(data) {
         return __awaiter(this, void 0, void 0, function* () {
+            var _a;
             // Validate actionType against enum
             if (!data.actionType || !VALID_ACTION_TYPES.includes(data.actionType)) {
                 console.warn(`[AlertService] Rejected log with invalid actionType: ${data.actionType}`);
@@ -110,8 +127,6 @@ class AlertService {
                 }
             }
             // ── Geofence alerts ──────────────────────────────────────────────────────
-            // Route by actionType so geofence events never fall into the unsafe_content
-            // catch-all below. DWELL is audit-only (no parent alert needed).
             if (data.actionType === 'GEOFENCE_ENTER' || data.actionType === 'GEOFENCE_EXIT') {
                 const alertType = data.actionType === 'GEOFENCE_ENTER' ? 'geofence_entry' : 'geofence_exit';
                 const geofenceAlert = this.alertRepo.create({
@@ -124,6 +139,26 @@ class AlertService {
                 yield this.alertRepo.save(geofenceAlert);
                 if (child.parent) {
                     yield this.notificationService.sendToParent(child.parent.id, `📍 ${child.name}`, data.details, { type: 'GEOFENCE', childId: child.id, alertId: geofenceAlert.id });
+                }
+            }
+            // ── Social media / messaging notification flagging ───────────────────────
+            // If a notification from a known social/messaging app is captured, create a parent alert.
+            if (data.actionType === 'NOTIFICATION_RECEIVED' && ((_a = data.metadata) === null || _a === void 0 ? void 0 : _a.appPackage)) {
+                if (FLAGGED_NOTIFICATION_PACKAGES.has(data.metadata.appPackage)) {
+                    const existing = yield this.alertRepo.findOne({
+                        where: { childId: data.childId, type: 'unsafe_content', isResolved: false, message: data.details },
+                    });
+                    if (!existing && child.parent) {
+                        const notifAlert = this.alertRepo.create({
+                            childId: data.childId,
+                            type: 'unsafe_content',
+                            message: data.details,
+                            severity: 'info',
+                            metadata: data.metadata,
+                        });
+                        yield this.alertRepo.save(notifAlert);
+                        yield this.notificationService.sendToParent(child.parent.id, `Message activity: ${child.name}`, data.details, { type: 'NOTIFICATION', childId: child.id, alertId: notifAlert.id });
+                    }
                 }
             }
             // ── Auto-alert for critical safety events ───────────────────────────────

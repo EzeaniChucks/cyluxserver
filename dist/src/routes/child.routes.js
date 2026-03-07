@@ -18,10 +18,12 @@ const rateLimiter_1 = require("../middlewares/rateLimiter");
 const subscription_service_1 = require("../services/subscription.service");
 const database_1 = require("../database");
 const Child_1 = require("../entities/Child");
+const Reward_1 = require("../entities/Reward");
 const router = (0, express_1.Router)();
 const childController = new child_controller_1.ChildController();
 const pairingService = new pairing_service_1.PairingService();
 const childRepo = database_1.AppDataSource.getRepository(Child_1.ChildEntity);
+const rewardRepo = database_1.AppDataSource.getRepository(Reward_1.RewardEntity);
 // --- Parent Controlled Routes ---
 router.get("/", auth_1.protectParent, childController.getChildren);
 router.patch("/:id", auth_1.protectParent, childController.updateChild);
@@ -42,8 +44,9 @@ router.post("/pair", rateLimiter_1.pairingLimiter, (req, res) => __awaiter(void 
         if (!deviceId || typeof deviceId !== "string" || deviceId.trim().length === 0 || deviceId.length > 255) {
             return response_1.ApiResponse.error(res, "Invalid device ID.", 400);
         }
-        if (deviceType && !["ios", "android"].includes(deviceType)) {
-            return response_1.ApiResponse.error(res, "Invalid device type. Must be 'ios' or 'android'.", 400);
+        const validDeviceTypes = ["ios", "android", "android_tv", "tvos"];
+        if (deviceType && !validDeviceTypes.includes(deviceType)) {
+            return response_1.ApiResponse.error(res, "Invalid device type. Must be 'ios', 'android', 'android_tv', or 'tvos'.", 400);
         }
         // Resolve the parentId from the pairing code before checking limits
         const pairing = yield pairingService.findByCode(code);
@@ -75,5 +78,35 @@ router.post("/pair", rateLimiter_1.pairingLimiter, (req, res) => __awaiter(void 
 // --- Child Device Routes (all protected by device JWT) ---
 router.post("/:childId/heartbeat", auth_1.protectChild, childController.heartbeat);
 router.post("/:childId/command/:commandId/ack", auth_1.protectChild, childController.acknowledgeCommand);
+// Claim all pending reward minutes (child initiates from lock screen)
+router.post("/:childId/rewards/claim", auth_1.protectChild, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { childId } = req.params;
+        const authenticatedDeviceId = req.deviceId;
+        if (childId !== authenticatedDeviceId) {
+            return response_1.ApiResponse.error(res, "Unauthorized", 403);
+        }
+        const unclaimed = yield rewardRepo.find({ where: { childId, claimed: false } });
+        if (!unclaimed.length) {
+            return response_1.ApiResponse.success(res, { minutes: 0 }, "No pending rewards");
+        }
+        const totalMinutes = unclaimed.reduce((sum, r) => sum + r.minutes, 0);
+        const now = new Date();
+        // Mark all rewards claimed
+        yield Promise.all(unclaimed.map((r) => rewardRepo.update(r.id, { claimed: true, claimedAt: now })));
+        // Extend daily limit and unlock if previously paused due to limit
+        const child = yield childRepo.findOne({ where: { id: childId } });
+        if (child) {
+            const newLimit = child.dailyLimitMinutes + totalMinutes;
+            const wasAtLimit = child.usedMinutes >= child.dailyLimitMinutes;
+            yield childRepo.update(childId, Object.assign({ dailyLimitMinutes: newLimit }, (wasAtLimit ? { status: "active" } : {})));
+            return response_1.ApiResponse.success(res, { minutes: totalMinutes, newDailyLimitMinutes: newLimit }, `${totalMinutes} bonus minutes claimed`);
+        }
+        return response_1.ApiResponse.success(res, { minutes: totalMinutes }, "Rewards claimed");
+    }
+    catch (e) {
+        return response_1.ApiResponse.error(res, e.message);
+    }
+}));
 exports.default = router;
 //# sourceMappingURL=child.routes.js.map

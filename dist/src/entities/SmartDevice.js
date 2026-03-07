@@ -13,23 +13,15 @@ exports.SmartDeviceEntity = void 0;
 const typeorm_1 = require("typeorm");
 const Parent_1 = require("./Parent");
 /**
- * SmartDeviceEntity — stores a parent's connected smart TV device.
+ * SmartDeviceEntity — stores a parent's connected smart device (TV or tracker).
+ *
+ * deviceKind:
+ *  "tv"       Power-controllable TV (SmartThings or Home Assistant)
+ *  "tracker"  Location tracker (Samsung SmartTag via SmartThings)
  *
  * Supported platforms:
- *
- *  "smartthings"     Samsung Smart TVs via the SmartThings cloud API.
- *                    OAuth 2.0 tokens are stored here; the service refreshes
- *                    them automatically when they expire.
- *
- *  "home_assistant"  LG, Philips, Vizio, and any other brand whose TV is
- *                    managed by a local Home Assistant instance.
- *                    Parent provides the HA URL + a long-lived access token.
- *                    No refresh token needed — HA tokens don't expire.
- *
- * Enforcement hook:
- *   When a parent queues a LOCK command for a child, ChildService.queueCommand()
- *   calls SmartDeviceService.controlByChild(childId, 'off') to power off the
- *   linked TV.  UNLOCK calls controlByChild(childId, 'on').
+ *  "smartthings"    Samsung devices via the SmartThings cloud API (TVs + SmartTags)
+ *  "home_assistant" LG, Philips, Vizio, etc. via a local Home Assistant instance
  */
 let SmartDeviceEntity = class SmartDeviceEntity {
 };
@@ -48,6 +40,10 @@ __decorate([
     (0, typeorm_1.JoinColumn)({ name: "parentId" }),
     __metadata("design:type", Parent_1.ParentEntity)
 ], SmartDeviceEntity.prototype, "parent", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ type: "varchar", default: "tv" }),
+    __metadata("design:type", String)
+], SmartDeviceEntity.prototype, "deviceKind", void 0);
 __decorate([
     (0, typeorm_1.Column)({ type: "varchar" }),
     __metadata("design:type", String)
@@ -81,6 +77,10 @@ __decorate([
     (0, typeorm_1.Column)({ type: "varchar", nullable: true }),
     __metadata("design:type", Object)
 ], SmartDeviceEntity.prototype, "linkedChildId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ type: "jsonb", nullable: true }),
+    __metadata("design:type", Object)
+], SmartDeviceEntity.prototype, "lastLocation", void 0);
 __decorate([
     (0, typeorm_1.Column)({ default: true }),
     __metadata("design:type", Boolean)

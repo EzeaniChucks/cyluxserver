@@ -15,6 +15,7 @@ const Child_1 = require("../entities/Child");
 const Command_1 = require("../entities/Command");
 const AuditLog_1 = require("../entities/AuditLog");
 const Alert_1 = require("../entities/Alert");
+const Reward_1 = require("../entities/Reward");
 const notification_service_1 = require("./notification.service");
 const smartDevice_service_1 = require("./smartDevice.service");
 const typeorm_1 = require("typeorm");
@@ -62,6 +63,9 @@ class ChildService {
                         where: { childId, status: "pending" },
                         order: { createdAt: "ASC" },
                     });
+                    const rewardRepo = manager.getRepository(Reward_1.RewardEntity);
+                    const pendingRewards = yield rewardRepo.find({ where: { childId, claimed: false } });
+                    const pendingRewardMinutes = pendingRewards.reduce((sum, r) => sum + r.minutes, 0);
                     const dedupEffectiveStatus = child.dailyLimitMinutes > 0 && child.usedMinutes >= child.dailyLimitMinutes
                         ? "paused"
                         : child.status;
@@ -77,6 +81,7 @@ class ChildService {
                             blockedApps: child.blockedApps,
                             geofences: child.geofences,
                             schedules: child.schedules,
+                            pendingRewardMinutes,
                         },
                         commands: commands.map((c) => ({ id: c.id, type: c.type, payload: c.payload })),
                     };
@@ -210,6 +215,10 @@ class ChildService {
                 if (commands.length > 0) {
                     yield this.commandRepo.update(commands.map((c) => c.id), { status: "delivered" });
                 }
+                // --- Pending reward minutes ---
+                const rewardRepo = manager.getRepository(Reward_1.RewardEntity);
+                const pendingRewards = yield rewardRepo.find({ where: { childId, claimed: false } });
+                const pendingRewardMinutes = pendingRewards.reduce((sum, r) => sum + r.minutes, 0);
                 // If the daily limit has been reached, the device must be locked system-wide
                 // regardless of the parent-set status. The native updateLocalPolicy() triggers
                 // showHardLockOverlay() when status === "paused", so returning "paused" here
@@ -230,6 +239,7 @@ class ChildService {
                         blockedApps: child.blockedApps,
                         geofences: child.geofences,
                         schedules: child.schedules,
+                        pendingRewardMinutes,
                     },
                     commands: commands.map((c) => ({ id: c.id, type: c.type, payload: c.payload })),
                 };

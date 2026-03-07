@@ -24,6 +24,9 @@ const ST_DEVICES_URL = "https://api.smartthings.com/v1/devices";
 const ST_COMMAND_URL = (deviceId) => `https://api.smartthings.com/v1/devices/${deviceId}/commands`;
 // SmartThings device categories that represent televisions
 const TV_CATEGORIES = new Set(["Television", "SmartTV", "OTT_PLAY_DEVICE"]);
+// SmartThings device categories / capabilities that represent trackers (SmartTag)
+const TRACKER_CATEGORIES = new Set(["Tracking", "Presense Sensor", "Mobile"]);
+const ST_DEVICE_STATUS_URL = (deviceId) => `https://api.smartthings.com/v1/devices/${deviceId}/status`;
 // ── OAuth state helpers ──────────────────────────────────────────────────────
 // The OAuth `state` param is a short-lived JWT so the callback can identify
 // which parent initiated the flow without storing server-side session state.
@@ -240,6 +243,160 @@ class SmartDeviceService {
                 isActive: true,
             });
             return this.repo.save(entity);
+        });
+    }
+    // ── SmartThings tracker (SmartTag) ─────────────────────────────────────────
+    /**
+     * Discovers SmartTag / tracker devices on the parent's SmartThings account.
+     * Identifies them by the `presenceSensor` capability or `Tracking` category.
+     * Shares the same OAuth tokens as the TV connection — no new auth needed.
+     *
+     * Returns the saved tracker records.
+     */
+    discoverSmartThingsTrackers(parentId) {
+        return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b, _c, _d, _e;
+            // Find any existing SmartThings TV device to borrow a valid token
+            const existing = yield this.repo.findOne({
+                where: { parentId, platform: "smartthings", deviceKind: "tv" },
+                order: { updatedAt: "DESC" },
+            });
+            if (!existing) {
+                throw new Error("Connect a Samsung TV first — SmartTag uses the same SmartThings account.");
+            }
+            const token = yield this.getValidSmartThingsToken(existing);
+            const devicesRes = yield axios_1.default.get(ST_DEVICES_URL, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            const allDevices = (_a = devicesRes.data.items) !== null && _a !== void 0 ? _a : [];
+            // Filter for tracker-like devices: presenceSensor capability or Tracking category
+            const trackerDevices = allDevices.filter((d) => {
+                var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+                const category = (_e = (_d = (_c = (_b = (_a = d.components) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.categories) === null || _c === void 0 ? void 0 : _c[0]) === null || _d === void 0 ? void 0 : _d.name) !== null && _e !== void 0 ? _e : "";
+                const caps = (_j = (_h = (_g = (_f = d.components) === null || _f === void 0 ? void 0 : _f[0]) === null || _g === void 0 ? void 0 : _g.capabilities) === null || _h === void 0 ? void 0 : _h.map((c) => c.id)) !== null && _j !== void 0 ? _j : [];
+                return (TRACKER_CATEGORIES.has(category) ||
+                    caps.includes("presenceSensor") ||
+                    caps.includes("samsungvd.relayLocation"));
+            });
+            const saved = [];
+            for (const device of trackerDevices) {
+                let rec = yield this.repo.findOne({
+                    where: { parentId, externalDeviceId: device.deviceId, deviceKind: "tracker" },
+                });
+                if (rec) {
+                    rec.deviceName = (_c = (_b = device.label) !== null && _b !== void 0 ? _b : device.name) !== null && _c !== void 0 ? _c : "SmartTag";
+                    rec.isActive = true;
+                    saved.push(yield this.repo.save(rec));
+                }
+                else {
+                    const newRec = this.repo.create({
+                        parentId,
+                        platform: "smartthings",
+                        deviceKind: "tracker",
+                        externalDeviceId: device.deviceId,
+                        deviceName: (_e = (_d = device.label) !== null && _d !== void 0 ? _d : device.name) !== null && _e !== void 0 ? _e : "SmartTag",
+                        accessToken: existing.accessToken,
+                        refreshToken: existing.refreshToken,
+                        tokenExpiry: existing.tokenExpiry,
+                        baseUrl: null,
+                        lastLocation: null,
+                        isActive: true,
+                    });
+                    saved.push(yield this.repo.save(newRec));
+                }
+            }
+            return saved;
+        });
+    }
+    /**
+     * Polls SmartThings for the current presence / location of a tracker device.
+     * Updates lastLocation in the database and returns it.
+     */
+    refreshTrackerLocation(trackerId, parentId) {
+        return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+            const device = yield this.repo.findOne({
+                where: { id: trackerId, parentId, deviceKind: "tracker" },
+            });
+            if (!device)
+                throw new Error("Tracker not found");
+            const token = yield this.getValidSmartThingsToken(device);
+            const statusRes = yield axios_1.default.get(ST_DEVICE_STATUS_URL(device.externalDeviceId), {
+                headers: { Authorization: `Bearer ${token}` },
+                timeout: 10000,
+            });
+            const components = (_c = (_b = (_a = statusRes.data) === null || _a === void 0 ? void 0 : _a.components) === null || _b === void 0 ? void 0 : _b.main) !== null && _c !== void 0 ? _c : {};
+            const presence = (_f = (_e = (_d = components.presenceSensor) === null || _d === void 0 ? void 0 : _d.presence) === null || _e === void 0 ? void 0 : _e.value) !== null && _f !== void 0 ? _f : "unknown";
+            // SmartTag+ / newer models may expose coordinates via threeAxis or location
+            const lat = (_j = (_h = (_g = components["samsungvd.relayLocation"]) === null || _g === void 0 ? void 0 : _g.locationLatitude) === null || _h === void 0 ? void 0 : _h.value) !== null && _j !== void 0 ? _j : null;
+            const lng = (_m = (_l = (_k = components["samsungvd.relayLocation"]) === null || _k === void 0 ? void 0 : _k.locationLongitude) === null || _l === void 0 ? void 0 : _l.value) !== null && _m !== void 0 ? _m : null;
+            const location = {
+                lat: lat !== null && lat !== void 0 ? lat : 0,
+                lng: lng !== null && lng !== void 0 ? lng : 0,
+                presence: presence,
+                updatedAt: new Date().toISOString(),
+            };
+            yield this.repo.update(device.id, { lastLocation: location });
+            device.lastLocation = location;
+            console.log(`[SmartDevice] Tracker "${device.deviceName}" presence=${presence}, ` +
+                (lat !== null ? `coords=${lat},${lng}` : "no GPS"));
+            return device;
+        });
+    }
+    // ── Tile tracker ──────────────────────────────────────────────────────────
+    /**
+     * Connects Tile trackers using the Tile Platform API.
+     * Requires API credentials from tile.com/developer (Life360 approval needed).
+     *
+     * Tile API endpoint: https://platform.tile.com/api/v1/
+     * Auth: Basic auth with email:apiKey encoded as base64.
+     */
+    connectTileTrackers(parentId, email, apiKey) {
+        return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+            const TILE_API = "https://platform.tile.com/api/v1";
+            const auth = Buffer.from(`${email}:${apiKey}`).toString("base64");
+            // Fetch tile list
+            const res = yield axios_1.default.get(`${TILE_API}/tiles`, {
+                headers: { Authorization: `Basic ${auth}` },
+                timeout: 10000,
+            });
+            const tiles = (_d = (_b = (_a = res.data) === null || _a === void 0 ? void 0 : _a.tiles) !== null && _b !== void 0 ? _b : (_c = res.data) === null || _c === void 0 ? void 0 : _c.data) !== null && _d !== void 0 ? _d : [];
+            if (!tiles.length) {
+                throw new Error("No Tile trackers found on this account.");
+            }
+            const saved = [];
+            for (const tile of tiles) {
+                const existing = yield this.repo.findOne({
+                    where: { externalDeviceId: tile.uuid, parentId },
+                });
+                if (existing) {
+                    saved.push(existing);
+                    continue;
+                }
+                const device = this.repo.create({
+                    parentId,
+                    platform: "tile",
+                    deviceKind: "tracker",
+                    deviceName: (_e = tile.name) !== null && _e !== void 0 ? _e : `Tile ${(_f = tile.tile_type) !== null && _f !== void 0 ? _f : "Tracker"}`,
+                    externalDeviceId: tile.uuid,
+                    accessToken: apiKey, // store api key as access token
+                    refreshToken: email, // store email as refresh token for re-auth
+                    isActive: true,
+                    lastLocation: tile.last_tile_state
+                        ? {
+                            lat: (_g = tile.last_tile_state.latitude) !== null && _g !== void 0 ? _g : 0,
+                            lng: (_h = tile.last_tile_state.longitude) !== null && _h !== void 0 ? _h : 0,
+                            presence: tile.last_tile_state.is_lost ? "not present" : "present",
+                            updatedAt: new Date((_j = tile.last_tile_state.timestamp) !== null && _j !== void 0 ? _j : Date.now()).toISOString(),
+                        }
+                        : null,
+                });
+                const s = yield this.repo.save(device);
+                saved.push(s);
+                console.log(`[SmartDevice] Tile tracker "${device.deviceName}" connected for parent ${parentId}`);
+            }
+            return saved;
         });
     }
     // ── Device management ──────────────────────────────────────────────────────

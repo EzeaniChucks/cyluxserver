@@ -46,8 +46,8 @@ __decorate([
     __metadata("design:type", String)
 ], ChildEntity.prototype, "fcmToken", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ type: "enum", enum: ["ios", "android"], nullable: true }),
-    __metadata("design:type", String)
+    (0, typeorm_1.Column)({ type: "varchar", nullable: true }),
+    __metadata("design:type", Object)
 ], ChildEntity.prototype, "deviceType", void 0);
 __decorate([
     (0, typeorm_1.Column)("jsonb", { nullable: true }),

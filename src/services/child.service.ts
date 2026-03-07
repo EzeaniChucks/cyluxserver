@@ -16,7 +16,6 @@ const ALLOWED_COMMAND_TYPES = [
   "PLAY_SIREN",
   "SYNC_POLICY",
   "WIPE_BROWSER",
-  "TAKE_SCREENSHOT",
   "REMOTE_WIPE",
   "REBOOT",
   "INVENTORY_SCAN",
@@ -279,6 +278,13 @@ export class ChildService {
           geofences: child.geofences,
           schedules: child.schedules,
           pendingRewardMinutes,
+          // Per-app time limits: { "com.package": minutes } — consumed by MonitorService
+          // and EnforcementEngine to enforce via AppUsageTrackerService.
+          appTimeLimits: Object.fromEntries(
+            (child.appUsage || [])
+              .filter((a) => a.limitMinutes > 0)
+              .map((a) => [a.packageName, a.limitMinutes])
+          ),
         },
         commands: commands.map((c) => ({ id: c.id, type: c.type, payload: c.payload })),
       };
@@ -653,6 +659,37 @@ export class ChildService {
       blockedDomains: child?.webFilter?.blockedDomains || blockedDomains,
       lastStatus,
       uptime,
+    };
+  }
+
+  /**
+   * Returns the current policy for a device — used by the child app's
+   * checkPairing (verify still enrolled) and initializePolicy (LockScreen polling).
+   */
+  async getDevicePolicy(childId: string) {
+    const child = await this.childRepo.findOne({ where: { id: childId, isEnrolled: true } });
+    if (!child) throw new Error("Device not found or not enrolled");
+
+    const rewardRepo = AppDataSource.getRepository(RewardEntity);
+    const pendingRewards = await rewardRepo.find({ where: { childId, claimed: false } });
+    const pendingRewardMinutes = pendingRewards.reduce((sum, r) => sum + r.minutes, 0);
+
+    const effectiveStatus =
+      child.dailyLimitMinutes > 0 && child.usedMinutes >= child.dailyLimitMinutes
+        ? "paused"
+        : child.status;
+
+    return {
+      id: child.id,
+      status: effectiveStatus,
+      webFilter: child.webFilter,
+      dailyLimit: child.dailyLimitMinutes,
+      dailyLimitMinutes: child.dailyLimitMinutes,
+      usedMinutes: child.usedMinutes,
+      blockedApps: child.blockedApps,
+      geofences: child.geofences,
+      schedules: child.schedules,
+      pendingRewardMinutes,
     };
   }
 }

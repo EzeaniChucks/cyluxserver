@@ -39,7 +39,7 @@ export interface PlanLimits {
 export const PLAN_LIMITS: Record<string, PlanLimits> = {
   trial: {
     name: 'Free Trial',
-    description: '7-day Premium trial — no credit card required',
+    description: '3-day Premium trial — no credit card required',
     price: 0,
     maxDevices: 3,
     maxGeofences: 5,
@@ -190,7 +190,7 @@ export async function seedPlanConfigs(): Promise<void> {
           stripePriceId: plan.priceId ?? null,
           stripePriceIdAnnual: plan.stripePriceIdAnnual ?? null,
           contactSalesOnly: plan.contactSalesOnly ?? false,
-          trialDays: planId === 'trial' ? 7 : 0,
+          trialDays: planId === 'trial' ? 3 : 0,
         }),
       );
     }

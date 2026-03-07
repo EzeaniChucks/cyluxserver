@@ -33,7 +33,7 @@ export class SubscriptionEntity {
   @Column({ type: 'varchar', default: 'monthly' })
   billingInterval: 'monthly' | 'annual';
 
-  /** When the 7-day server-managed trial expires (null for paid plans). */
+  /** When the 3-day server-managed trial expires (null for paid plans). */
   @Column({ type: 'timestamp', nullable: true })
   trialEndsAt: Date | null;
 

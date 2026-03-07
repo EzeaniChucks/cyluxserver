@@ -64,7 +64,7 @@ class SubscriptionService {
     /** Called from auth.service.ts immediately after a new parent is saved. */
     createTrialSubscription(parentId) {
         return __awaiter(this, void 0, void 0, function* () {
-            const trialEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+            const trialEndsAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
             const sub = subRepo().create({
                 parentId,
                 plan: 'trial',
@@ -129,15 +129,44 @@ class SubscriptionService {
             return { allowed: false, limit: 0 };
         });
     }
+    /**
+     * Returns a Stripe Price ID denominated in `currency` with the same unit_amount
+     * as the given USD priceId. Lazily creates and caches the price in plan_config_entity.
+     */
+    getOrCreateLocalPrice(planConfig, usdPriceId, currency) {
+        return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b;
+            const cur = currency.toLowerCase();
+            const cached = (_a = planConfig.localPriceIds) === null || _a === void 0 ? void 0 : _a[cur];
+            if (cached)
+                return cached;
+            const usdPrice = yield stripe.prices.retrieve(usdPriceId);
+            if (!usdPrice.unit_amount)
+                throw new Error('USD price has no unit_amount');
+            const localPrice = yield stripe.prices.create({
+                currency: cur,
+                unit_amount: usdPrice.unit_amount, // same numeral, different currency
+                product: usdPrice.product,
+                recurring: usdPrice.recurring
+                    ? { interval: usdPrice.recurring.interval, interval_count: usdPrice.recurring.interval_count }
+                    : undefined,
+                nickname: `${usdPrice.nickname || planConfig.planId} (${currency.toUpperCase()})`.trim(),
+            });
+            planConfig.localPriceIds = Object.assign(Object.assign({}, ((_b = planConfig.localPriceIds) !== null && _b !== void 0 ? _b : {})), { [cur]: localPrice.id });
+            yield planRepo().save(planConfig);
+            return localPrice.id;
+        });
+    }
     // ─── Stripe Subscription Creation ─────────────────────────────────────────
     /**
      * Creates a Stripe Customer (if needed) + Subscription in `default_incomplete` mode.
      * Returns the clientSecret for Stripe Payment Sheet.
      *
-     * The billing interval (monthly vs annual) is derived from the priceId itself —
-     * the client does not need to send it separately.
+     * Pass `currency` (ISO 4217) for same-number local currency billing.
+     * Strong currencies (EUR, GBP, CHF) are charged the same numeral as the USD price.
+     * All other currencies use the USD priceId directly.
      */
-    createStripeSubscription(parentId, priceId, promoCode) {
+    createStripeSubscription(parentId, priceId, promoCode, currency) {
         return __awaiter(this, void 0, void 0, function* () {
             var _a;
             const parent = yield parentRepo().findOne({ where: { id: parentId } });
@@ -159,6 +188,14 @@ class SubscriptionService {
             if (matchedPlan.contactSalesOnly)
                 throw new Error('This plan requires contacting sales — no self-serve checkout');
             const billingInterval = monthlyMatch ? 'monthly' : 'annual';
+            // Resolve the effective Stripe price ID.
+            // For strong currencies (EUR, GBP, CHF), lazily create a local-currency price
+            // with the same unit_amount as the USD price (same-number billing).
+            let effectivePriceId = priceId;
+            const upperCurrency = currency === null || currency === void 0 ? void 0 : currency.toUpperCase();
+            if (upperCurrency && SubscriptionService.SAME_NUMBER_CURRENCIES.has(upperCurrency)) {
+                effectivePriceId = yield this.getOrCreateLocalPrice(matchedPlan, priceId, upperCurrency);
+            }
             // Create Stripe customer if not already created
             let customerId = sub.stripeCustomerId;
             if (!customerId) {
@@ -207,7 +244,7 @@ class SubscriptionService {
             }
             const subParams = {
                 customer: customerId,
-                items: [{ price: priceId }],
+                items: [{ price: effectivePriceId }],
                 payment_behavior: 'default_incomplete',
                 expand: ['latest_invoice.confirmation_secret'],
             };
@@ -405,5 +442,11 @@ class SubscriptionService {
     }
 }
 exports.SubscriptionService = SubscriptionService;
+// ─── Same-number local currency pricing ──────────────────────────────────
+/**
+ * Currencies stronger than USD that use same-number billing
+ * (e.g. $10 plan → £10, €10, Fr10 charged via Stripe).
+ */
+SubscriptionService.SAME_NUMBER_CURRENCIES = new Set(['EUR', 'GBP', 'CHF']);
 exports.subscriptionService = new SubscriptionService();
 //# sourceMappingURL=subscription.service.js.map

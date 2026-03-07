@@ -54,12 +54,12 @@ class SubscriptionController {
         /** POST /api/subscription/checkout — authenticated parent */
         this.createCheckout = (req, res) => __awaiter(this, void 0, void 0, function* () {
             try {
-                const { priceId, promoCode } = req.body;
+                const { priceId, promoCode, currency } = req.body;
                 if (!priceId || typeof priceId !== 'string') {
                     return response_1.ApiResponse.error(res, 'priceId is required', 400);
                 }
                 // Full validation (plan existence, isActive, contactSalesOnly) is done in the service
-                const result = yield subscription_service_1.subscriptionService.createStripeSubscription(req.user.id, priceId, promoCode ? String(promoCode) : undefined);
+                const result = yield subscription_service_1.subscriptionService.createStripeSubscription(req.user.id, priceId, promoCode ? String(promoCode) : undefined, currency ? String(currency) : undefined);
                 return response_1.ApiResponse.success(res, result, 'Payment intent created');
             }
             catch (err) {

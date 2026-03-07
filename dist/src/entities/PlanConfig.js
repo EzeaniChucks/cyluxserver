@@ -53,6 +53,18 @@ __decorate([
 __decorate([
     (0, typeorm_1.Column)({ default: false }),
     __metadata("design:type", Boolean)
+], PlanConfigEntity.prototype, "notificationMonitoring", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ default: false }),
+    __metadata("design:type", Boolean)
+], PlanConfigEntity.prototype, "callMonitoring", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ default: false }),
+    __metadata("design:type", Boolean)
+], PlanConfigEntity.prototype, "smsMonitoring", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ default: false }),
+    __metadata("design:type", Boolean)
 ], PlanConfigEntity.prototype, "smartTv", void 0);
 __decorate([
     (0, typeorm_1.Column)({ default: false }),
@@ -74,6 +86,10 @@ __decorate([
     (0, typeorm_1.Column)({ default: false }),
     __metadata("design:type", Boolean)
 ], PlanConfigEntity.prototype, "contactSalesOnly", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ type: 'simple-json', nullable: true }),
+    __metadata("design:type", Object)
+], PlanConfigEntity.prototype, "localPriceIds", void 0);
 __decorate([
     (0, typeorm_1.Column)('int', { default: 0 }),
     __metadata("design:type", Number)

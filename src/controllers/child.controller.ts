@@ -8,7 +8,7 @@ import { AuditLogEntity } from '../entities/AuditLog';
 
 const VALID_COMMAND_TYPES = [
   'LOCK', 'UNLOCK', 'PLAY_SIREN', 'SYNC_POLICY', 'WIPE_BROWSER',
-  'TAKE_SCREENSHOT', 'REMOTE_WIPE', 'REBOOT', 'INVENTORY_SCAN',
+  'REMOTE_WIPE', 'REBOOT', 'INVENTORY_SCAN',
 ];
 
 export class ChildController {
@@ -179,6 +179,16 @@ export class ChildController {
       return ApiResponse.success(res, result, 'Node policy updated');
     } catch (error: any) {
       return ApiResponse.error(res, error.message);
+    }
+  };
+
+  getDevicePolicy = async (req: any, res: Response) => {
+    try {
+      const childId = req.deviceId;
+      const policy = await this.childService.getDevicePolicy(childId);
+      return ApiResponse.success(res, policy, 'Policy fetched');
+    } catch (error: any) {
+      return ApiResponse.error(res, error.message, 404);
     }
   };
 }

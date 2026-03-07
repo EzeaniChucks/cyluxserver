@@ -36,8 +36,8 @@ class AlertController {
                 const parentId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.id;
                 if (!parentId)
                     return response_1.ApiResponse.error(res, 'Unauthorized', 401);
-                const { page = 1, limit = 100 } = req.query;
-                const result = yield this.alertService.getLogsByChildId(childId, parentId, Number(page), Number(limit));
+                const { page = 1, limit = 100, actionType } = req.query;
+                const result = yield this.alertService.getLogsByChildId(childId, parentId, Number(page), Number(limit), typeof actionType === 'string' ? actionType : undefined);
                 return response_1.ApiResponse.success(res, result);
             }
             catch (error) {

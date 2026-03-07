@@ -13,6 +13,8 @@ const express_1 = require("express");
 const smartDevice_service_1 = require("../services/smartDevice.service");
 const auth_1 = require("../middlewares/auth");
 const response_1 = require("../utils/response");
+const database_1 = require("../database");
+const Child_1 = require("../entities/Child");
 const router = (0, express_1.Router)();
 const smartDeviceService = new smartDevice_service_1.SmartDeviceService();
 // ── Samsung SmartThings ───────────────────────────────────────────────────────
@@ -27,7 +29,7 @@ const smartDeviceService = new smartDevice_service_1.SmartDeviceService();
  */
 router.get("/samsung/oauth-url", auth_1.protectParent, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const url = smartDeviceService.getSmartThingsOAuthUrl(req.parent.id);
+        const url = smartDeviceService.getSmartThingsOAuthUrl(req.user.id);
         return response_1.ApiResponse.success(res, { url }, "OAuth URL generated");
     }
     catch (e) {
@@ -35,16 +37,38 @@ router.get("/samsung/oauth-url", auth_1.protectParent, (req, res) => __awaiter(v
     }
 }));
 /**
+ * GET /api/smart-devices/samsung/oauth-callback
+ *
+ * SmartThings redirects here after the parent approves OAuth.
+ * No JWT required — the `state` param is a short-lived signed JWT that
+ * identifies the parent (set in SMARTTHINGS_REDIRECT_URI).
+ *
+ * On success: redirects to {WEBSITE_URL}/connect/samsung/success?count=N
+ * On error:   redirects to {WEBSITE_URL}/connect/samsung/error?msg=...
+ */
+router.get("/samsung/oauth-callback", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { code, state } = req.query;
+    const websiteUrl = process.env.WEBSITE_URL || "http://localhost:3000";
+    if (!code || !state) {
+        return res.redirect(`${websiteUrl}/connect/samsung/error?msg=Missing+code+or+state`);
+    }
+    try {
+        const devices = yield smartDeviceService.exchangeSmartThingsCode(code, state);
+        return res.redirect(`${websiteUrl}/connect/samsung/success?count=${devices.length}`);
+    }
+    catch (e) {
+        const msg = encodeURIComponent(e.message || "Connection failed");
+        return res.redirect(`${websiteUrl}/connect/samsung/error?msg=${msg}`);
+    }
+}));
+/**
  * POST /api/smart-devices/samsung/callback
  *
- * Exchanges the SmartThings authorization code for tokens and discovers
- * TV devices on the account.
+ * Alternative callback for web clients that are already authenticated.
+ * The cyluxwebsite /connect/samsung page can POST code+state with the
+ * parent's JWT if the parent is logged in on the website.
  *
  * Body: { code: string, state: string }
- *
- * The SmartThings redirect page (cyluxwebsite /connect/samsung/callback)
- * POSTs the code + state from the URL to this endpoint with the parent's JWT.
- *
  * Response: { data: { devices: SmartDevice[] } }
  */
 router.post("/samsung/callback", auth_1.protectParent, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
@@ -100,7 +124,7 @@ router.post("/home-assistant", auth_1.protectParent, (req, res) => __awaiter(voi
         return response_1.ApiResponse.error(res, "baseUrl, entityId, deviceName, and haToken are required", 400);
     }
     try {
-        const device = yield smartDeviceService.addHomeAssistantDevice(req.parent.id, baseUrl, entityId, deviceName, haToken);
+        const device = yield smartDeviceService.addHomeAssistantDevice(req.user.id, baseUrl, entityId, deviceName, haToken);
         return response_1.ApiResponse.success(res, { device }, "Home Assistant TV connected");
     }
     catch (e) {
@@ -111,15 +135,62 @@ router.post("/home-assistant", auth_1.protectParent, (req, res) => __awaiter(voi
 /**
  * GET /api/smart-devices
  *
- * Lists all smart TV devices connected to the authenticated parent's account.
+ * Returns all smart devices for the authenticated parent, split by type:
+ *   cloudTvs:    Samsung/HA power-controllable TVs (deviceKind="tv")
+ *   trackers:    Samsung SmartTag trackers (deviceKind="tracker")
+ *   appDevices:  Child profiles with deviceType 'android_tv' | 'tvos'
+ *                (cyluxchildtv app paired to a child profile)
  */
 router.get("/", auth_1.protectParent, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const devices = yield smartDeviceService.getDevicesByParent(req.parent.id);
-        return response_1.ApiResponse.success(res, { devices });
+        const [allCloud, appDevices] = yield Promise.all([
+            smartDeviceService.getDevicesByParent(req.user.id),
+            database_1.AppDataSource.getRepository(Child_1.ChildEntity).find({
+                where: [
+                    { parent: { id: req.user.id }, deviceType: "android_tv" },
+                    { parent: { id: req.user.id }, deviceType: "tvos" },
+                ],
+                order: { lastSeen: "ASC" },
+            }),
+        ]);
+        const cloudTvs = allCloud.filter((d) => d.deviceKind === "tv");
+        const trackers = allCloud.filter((d) => d.deviceKind === "tracker");
+        return response_1.ApiResponse.success(res, { cloudTvs, trackers, appDevices });
     }
     catch (e) {
         return response_1.ApiResponse.error(res, e.message, 500);
+    }
+}));
+// ── Tracker management ────────────────────────────────────────────────────────
+/**
+ * POST /api/smart-devices/trackers/discover
+ *
+ * Discovers Samsung SmartTag devices on the parent's SmartThings account.
+ * Requires that the parent has already connected at least one Samsung TV
+ * (shares the same OAuth tokens).
+ */
+router.post("/trackers/discover", auth_1.protectParent, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const trackers = yield smartDeviceService.discoverSmartThingsTrackers(req.user.id);
+        return response_1.ApiResponse.success(res, { trackers }, `${trackers.length} tracker(s) found`);
+    }
+    catch (e) {
+        return response_1.ApiResponse.error(res, e.message, 400);
+    }
+}));
+/**
+ * POST /api/smart-devices/:id/tracker/refresh
+ *
+ * Polls SmartThings for the latest presence / location of a SmartTag.
+ * Returns the updated device record with lastLocation.
+ */
+router.post("/:id/tracker/refresh", auth_1.protectParent, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const device = yield smartDeviceService.refreshTrackerLocation(req.params.id, req.user.id);
+        return response_1.ApiResponse.success(res, { device });
+    }
+    catch (e) {
+        return response_1.ApiResponse.error(res, e.message, 400);
     }
 }));
 /**
@@ -133,7 +204,7 @@ router.get("/", auth_1.protectParent, (req, res) => __awaiter(void 0, void 0, vo
 router.patch("/:id/link", auth_1.protectParent, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { childId } = req.body;
     try {
-        const device = yield smartDeviceService.linkToChild(req.params.id, childId !== null && childId !== void 0 ? childId : null, req.parent.id);
+        const device = yield smartDeviceService.linkToChild(req.params.id, childId !== null && childId !== void 0 ? childId : null, req.user.id);
         const msg = childId
             ? `TV linked to child profile`
             : `TV unlinked from child profile`;
@@ -156,8 +227,30 @@ router.post("/:id/control", auth_1.protectParent, (req, res) => __awaiter(void 0
         return response_1.ApiResponse.error(res, 'action must be "on" or "off"', 400);
     }
     try {
-        yield smartDeviceService.controlDevice(req.params.id, action, req.parent.id);
+        yield smartDeviceService.controlDevice(req.params.id, action, req.user.id);
         return response_1.ApiResponse.success(res, {}, `TV powered ${action}`);
+    }
+    catch (e) {
+        return response_1.ApiResponse.error(res, e.message, 400);
+    }
+}));
+/**
+ * POST /api/smart-devices/tile
+ *
+ * Connects Tile trackers via the Tile Platform API.
+ * Requires a Tile developer API key obtained from tile.com/developer.
+ *
+ * Body: { email: string, apiKey: string }
+ * Response: { data: { trackers: SmartDevice[] } }
+ */
+router.post("/tile", auth_1.protectParent, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { email, apiKey } = req.body;
+    if (!email || !apiKey) {
+        return response_1.ApiResponse.error(res, "email and apiKey are required", 400);
+    }
+    try {
+        const trackers = yield smartDeviceService.connectTileTrackers(req.user.id, email, apiKey);
+        return response_1.ApiResponse.success(res, { trackers }, `${trackers.length} Tile tracker(s) connected`);
     }
     catch (e) {
         return response_1.ApiResponse.error(res, e.message, 400);
@@ -170,7 +263,7 @@ router.post("/:id/control", auth_1.protectParent, (req, res) => __awaiter(void 0
  */
 router.delete("/:id", auth_1.protectParent, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        yield smartDeviceService.removeDevice(req.params.id, req.parent.id);
+        yield smartDeviceService.removeDevice(req.params.id, req.user.id);
         return response_1.ApiResponse.success(res, {}, "Smart device removed");
     }
     catch (e) {

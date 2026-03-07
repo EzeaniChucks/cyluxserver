@@ -19,7 +19,7 @@ export class SubscriptionService {
 
   /** Called from auth.service.ts immediately after a new parent is saved. */
   async createTrialSubscription(parentId: string): Promise<SubscriptionEntity> {
-    const trialEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const trialEndsAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
     const sub = subRepo().create({
       parentId,
       plan: 'trial',
