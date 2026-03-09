@@ -158,7 +158,7 @@ class ChildController {
                 if (!childCheck)
                     return response_1.ApiResponse.error(res, 'Unauthorized access to node', 403);
                 // Whitelist: only pass safe, parent-controllable fields
-                const { name, status, dailyLimitMinutes, blockedApps, webFilter, geofences, schedules, fcmToken, } = req.body;
+                const { name, status, dailyLimitMinutes, blockedApps, webFilter, geofences, schedules, fcmToken, appUsage, } = req.body;
                 const safeUpdates = {};
                 if (name !== undefined)
                     safeUpdates.name = name;
@@ -176,6 +176,8 @@ class ChildController {
                     safeUpdates.schedules = schedules;
                 if (fcmToken !== undefined)
                     safeUpdates.fcmToken = fcmToken;
+                if (appUsage !== undefined && Array.isArray(appUsage))
+                    safeUpdates.appUsage = appUsage;
                 const result = yield this.childService.updateChild(id, safeUpdates);
                 return response_1.ApiResponse.success(res, result, 'Node policy updated');
             }

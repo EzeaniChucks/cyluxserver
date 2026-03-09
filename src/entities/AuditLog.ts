@@ -3,7 +3,6 @@ import {
   Entity,
   PrimaryGeneratedColumn,
   Column,
-  CreateDateColumn,
   ManyToOne,
   // Index,
 } from "typeorm";
@@ -123,7 +122,7 @@ export class AuditLogEntity {
     triggerSource?: "automatic" | "manual" | "parent"; // How event was triggered
   };
 
-  @CreateDateColumn()
+  @Column({ type: 'timestamptz', default: () => 'NOW()' })
   // @Index() // ENHANCEMENT: Index for time-based queries
   timestamp: Date;
 

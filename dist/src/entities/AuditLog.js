@@ -81,7 +81,7 @@ __decorate([
     __metadata("design:type", Object)
 ], AuditLogEntity.prototype, "metadata", void 0);
 __decorate([
-    (0, typeorm_1.CreateDateColumn)()
+    (0, typeorm_1.Column)({ type: 'timestamptz', default: () => 'NOW()' })
     // @Index() // ENHANCEMENT: Index for time-based queries
     ,
     __metadata("design:type", Date)

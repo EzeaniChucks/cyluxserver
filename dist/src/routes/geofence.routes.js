@@ -46,6 +46,7 @@ router.get("/analytics/:childId", auth_1.protectParent, (req, res) => __awaiter(
 }));
 // Update geofences for a child
 router.put("/:childId", auth_1.protectParent, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b;
     try {
         const { childId } = req.params;
         const { geofences } = req.body;
@@ -88,19 +89,25 @@ router.put("/:childId", auth_1.protectParent, (req, res) => __awaiter(void 0, vo
             if (g.name.length > 100) {
                 return response_1.ApiResponse.error(res, `Name too long at geofence index ${i}. Maximum 100 characters.`, 400);
             }
-            validatedGeofences.push({
-                id: g.id || `zone_${Date.now()}_${i}`,
-                name: g.name.trim(),
-                lat,
+            // Validate timed fields
+            const timeRx = /^([01]\d|2[0-3]):[0-5]\d$/;
+            const validDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            const alertOnMissedDeparture = typeof g.alertOnMissedDeparture === 'string' && timeRx.test(g.alertOnMissedDeparture)
+                ? g.alertOnMissedDeparture : null;
+            const alertOnMissedArrival = typeof g.alertOnMissedArrival === 'string' && timeRx.test(g.alertOnMissedArrival)
+                ? g.alertOnMissedArrival : null;
+            const missedDepartureDays = Array.isArray(g.missedDepartureDays)
+                ? g.missedDepartureDays.filter((d) => validDays.includes(d))
+                : undefined;
+            const missedArrivalDays = Array.isArray(g.missedArrivalDays)
+                ? g.missedArrivalDays.filter((d) => validDays.includes(d))
+                : undefined;
+            validatedGeofences.push(Object.assign(Object.assign(Object.assign({ id: g.id || `zone_${Date.now()}_${i}`, name: g.name.trim(), lat,
                 lng,
-                radius,
-                type: ["safe", "restricted", "notification"].includes(g.type) ? g.type : "notification",
-                notifyOn: Array.isArray(g.notifyOn) ? g.notifyOn : ["ENTER", "EXIT"],
-                dwellTime: typeof g.dwellTime === "number" ? g.dwellTime : 60,
-                enabled: g.enabled !== false,
-                createdAt: g.createdAt ? new Date(g.createdAt) : new Date(),
-                updatedAt: new Date(),
-            });
+                radius, type: ["safe", "restricted", "notification"].includes(g.type) ? g.type : "notification", notifyOn: Array.isArray(g.notifyOn) ? g.notifyOn : ["ENTER", "EXIT"], dwellTime: typeof g.dwellTime === "number" ? g.dwellTime : 60, enabled: g.enabled !== false, createdAt: g.createdAt ? new Date(g.createdAt) : new Date(), updatedAt: new Date(), alertOnMissedDeparture,
+                alertOnMissedArrival }, (missedDepartureDays ? { missedDepartureDays } : {})), (missedArrivalDays ? { missedArrivalDays } : {})), { 
+                // Preserve deduplication timestamps if re-saving an existing zone
+                lastMissedDepartureAlert: (_a = g.lastMissedDepartureAlert) !== null && _a !== void 0 ? _a : null, lastMissedArrivalAlert: (_b = g.lastMissedArrivalAlert) !== null && _b !== void 0 ? _b : null }));
         }
         child.geofences = validatedGeofences;
         yield childRepo.save(child);

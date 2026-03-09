@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { adminController } from '../controllers/admin.controller';
 import { protectAdmin } from '../middlewares/auth';
+import { authLimiter } from '../middlewares/rateLimiter';
 
 const router = Router();
 
 // ── Open (no auth) ──────────────────────────────────────────────────────────
-router.post('/auth/seed', adminController.seed);
-router.post('/auth/login', adminController.login);
+router.post('/auth/seed', authLimiter, adminController.seed);
+router.post('/auth/login', authLimiter, adminController.login);
 
 // ── Protected (admin token required) ───────────────────────────────────────
 router.get('/stats', protectAdmin(['superadmin', 'admin', 'support']), adminController.getStats);

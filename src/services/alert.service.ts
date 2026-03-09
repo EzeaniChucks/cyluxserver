@@ -13,19 +13,63 @@ const VALID_ACTION_TYPES = [
   'SOS_PANIC', 'UNLOCK_REQUEST',
   'YOUTUBE_WATCH', 'YOUTUBE_SEARCH', 'NOTIFICATION_RECEIVED',
   'CALL_LOG', 'SMS_RECEIVED', 'WEB_HISTORY',
+  'SOCIAL_CONTENT',
+  'GEOFENCE_OVERDUE', 'GEOFENCE_MISSING',
 ] as const;
 
-// Social/messaging app packages whose notifications are flagged for parents
+// Social/messaging app packages whose notifications are flagged for parents.
+// Covers major global platforms + regional apps. Unknown apps are caught by
+// the fuzzy keyword matcher below.
 const FLAGGED_NOTIFICATION_PACKAGES = new Set([
+  // WhatsApp
   'com.whatsapp', 'com.whatsapp.w4b',
+  // Instagram
   'com.instagram.android',
-  'com.facebook.katana', 'com.facebook.lite',
+  // Facebook / Messenger
+  'com.facebook.katana', 'com.facebook.lite', 'com.facebook.orca',
+  // Snapchat
   'com.snapchat.android',
-  'com.zhiliaoapp.musically', // TikTok
+  // TikTok (two known package names)
+  'com.zhiliaoapp.musically', 'com.ss.android.ugc.aweme',
+  // Discord
   'com.discord',
-  'org.telegram.messenger',
-  'com.twitter.android', 'com.x.android',
+  // Telegram
+  'org.telegram.messenger', 'org.telegram.messenger.beta', 'org.telegram.plus',
+  // Twitter / X
+  'com.twitter.android', 'com.twitter.android.lite', 'com.x.android',
+  // WeChat / QQ / Weibo (China)
+  'com.tencent.mm', 'com.tencent.mobileqq', 'com.sina.weibo',
+  // LINE (Japan/Asia)
+  'jp.naver.line.android',
+  // KakaoTalk (Korea)
+  'com.kakao.talk',
+  // Zalo (Vietnam)
+  'com.zing.zalo',
+  // VK (Russia/Europe)
+  'com.vkontakte.android',
+  // Viber / Skype
+  'com.viber.voip', 'com.skype.raider',
+  // BeReal / Twitch
+  'com.bereal.ft', 'tv.twitch.android.app',
+  // Reddit / LinkedIn / Pinterest / Tumblr
+  'com.reddit.frontpage', 'com.linkedin.android', 'com.pinterest', 'com.tumblr',
+  // Teen-focused: Kik, Yubo, BIGO Live, Likee
+  'com.kik.android', 'com.SquareDaisy.Yubo', 'sg.bigo.live', 'video.like',
+  // Signal (private messaging)
+  'org.thoughtcrime.securesms',
+  // Clubhouse
+  'com.clubhouse.app',
+  // MiChat / Helo
+  'com.bimilive.michat', 'com.helo.android',
 ]);
+
+// Fuzzy keyword classifier: catches niche/regional/unknown social apps not in
+// the hardcoded list. Used as a fallback when the package is not explicitly listed.
+function looksLikeSocialPackage(pkg: string): boolean {
+  const lower = pkg.toLowerCase();
+  const SOCIAL_KEYWORDS = ['social', 'chat', 'messenger', 'dating', 'meet', 'friends', 'talk', 'dm'];
+  return SOCIAL_KEYWORDS.some((kw) => lower.includes(kw));
+}
 
 export class AlertService {
   private alertRepo = AppDataSource.getRepository(AlertEntity);
@@ -99,6 +143,14 @@ export class AlertService {
       return null;
     }
 
+    // Use the client-provided timestamp if it's a valid ISO date within a 24h window.
+    // Falls back to server time for missing, malformed, or out-of-range values.
+    const clientTime = data.timestamp ? new Date(data.timestamp) : NaN;
+    data.timestamp =
+      !isNaN(+clientTime) && Math.abs(Date.now() - +clientTime) < 86_400_000
+        ? clientTime
+        : new Date();
+
     const log = this.logRepo.create(data);
     const savedLog = await this.logRepo.save(log);
 
@@ -152,10 +204,31 @@ export class AlertService {
       }
     }
 
+    // ── Timed geofence violation alerts ─────────────────────────────────────
+    if (data.actionType === 'GEOFENCE_OVERDUE' || data.actionType === 'GEOFENCE_MISSING') {
+      const timedAlert = this.alertRepo.create({
+        childId: data.childId,
+        type: 'geofence_timed' as any,
+        message: data.details,
+        severity: 'warning',
+        metadata: data.metadata,
+      });
+      await this.alertRepo.save(timedAlert);
+      if (child.parent) {
+        await this.notificationService.sendToParent(
+          child.parent.id,
+          `⏰ ${child.name}`,
+          data.details,
+          { type: 'GEOFENCE_TIMED', childId: child.id, alertId: timedAlert.id },
+        );
+      }
+    }
+
     // ── Social media / messaging notification flagging ───────────────────────
     // If a notification from a known social/messaging app is captured, create a parent alert.
     if (data.actionType === 'NOTIFICATION_RECEIVED' && data.metadata?.appPackage) {
-      if (FLAGGED_NOTIFICATION_PACKAGES.has(data.metadata.appPackage)) {
+      const pkg: string = data.metadata.appPackage;
+    if (FLAGGED_NOTIFICATION_PACKAGES.has(pkg) || looksLikeSocialPackage(pkg)) {
         const existing = await this.alertRepo.findOne({
           where: { childId: data.childId, type: 'unsafe_content' as any, isResolved: false, message: data.details },
         });

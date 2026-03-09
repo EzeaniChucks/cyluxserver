@@ -3,10 +3,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const admin_controller_1 = require("../controllers/admin.controller");
 const auth_1 = require("../middlewares/auth");
+const rateLimiter_1 = require("../middlewares/rateLimiter");
 const router = (0, express_1.Router)();
 // ── Open (no auth) ──────────────────────────────────────────────────────────
-router.post('/auth/seed', admin_controller_1.adminController.seed);
-router.post('/auth/login', admin_controller_1.adminController.login);
+router.post('/auth/seed', rateLimiter_1.authLimiter, admin_controller_1.adminController.seed);
+router.post('/auth/login', rateLimiter_1.authLimiter, admin_controller_1.adminController.login);
 // ── Protected (admin token required) ───────────────────────────────────────
 router.get('/stats', (0, auth_1.protectAdmin)(['superadmin', 'admin', 'support']), admin_controller_1.adminController.getStats);
 router.get('/revenue', (0, auth_1.protectAdmin)(['superadmin', 'admin']), admin_controller_1.adminController.getRevenue);

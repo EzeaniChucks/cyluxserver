@@ -93,6 +93,26 @@ router.put("/:childId", protectParent, async (req: any, res: any) => {
         return ApiResponse.error(res, `Name too long at geofence index ${i}. Maximum 100 characters.`, 400);
       }
 
+      // Validate timed fields
+      const timeRx = /^([01]\d|2[0-3]):[0-5]\d$/;
+      const validDays = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+      const alertOnMissedDeparture =
+        typeof g.alertOnMissedDeparture === 'string' && timeRx.test(g.alertOnMissedDeparture)
+          ? g.alertOnMissedDeparture : null;
+      const alertOnMissedArrival =
+        typeof g.alertOnMissedArrival === 'string' && timeRx.test(g.alertOnMissedArrival)
+          ? g.alertOnMissedArrival : null;
+
+      const missedDepartureDays =
+        Array.isArray(g.missedDepartureDays)
+          ? g.missedDepartureDays.filter((d: string) => validDays.includes(d))
+          : undefined;
+      const missedArrivalDays =
+        Array.isArray(g.missedArrivalDays)
+          ? g.missedArrivalDays.filter((d: string) => validDays.includes(d))
+          : undefined;
+
       validatedGeofences.push({
         id: g.id || `zone_${Date.now()}_${i}`,
         name: g.name.trim(),
@@ -105,7 +125,14 @@ router.put("/:childId", protectParent, async (req: any, res: any) => {
         enabled: g.enabled !== false,
         createdAt: g.createdAt ? new Date(g.createdAt) : new Date(),
         updatedAt: new Date(),
-      });
+        alertOnMissedDeparture,
+        alertOnMissedArrival,
+        ...(missedDepartureDays ? { missedDepartureDays } : {}),
+        ...(missedArrivalDays   ? { missedArrivalDays }   : {}),
+        // Preserve deduplication timestamps if re-saving an existing zone
+        lastMissedDepartureAlert: g.lastMissedDepartureAlert ?? null,
+        lastMissedArrivalAlert:   g.lastMissedArrivalAlert   ?? null,
+      } as any);
     }
 
     child.geofences = validatedGeofences;

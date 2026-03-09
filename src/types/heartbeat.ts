@@ -20,6 +20,7 @@ export interface HeartbeatData {
     };
     timestamp?: Date;
   }>;
+  timezone?: string;  // IANA timezone e.g. "America/New_York" — used for timed geofence checks
   vpnStatus?: "stopped" | "starting" | "running" | "error";
   blockedDomains?: string[];
   blockedIPs?: string[];

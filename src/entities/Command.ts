@@ -27,6 +27,7 @@ export class CommandEntity {
       "PLAY_SIREN",
       "SYNC_POLICY",
       "WIPE_BROWSER",
+      "TAKE_SCREENSHOT",
       "REMOTE_WIPE",
       "REBOOT",
       "INVENTORY_SCAN",

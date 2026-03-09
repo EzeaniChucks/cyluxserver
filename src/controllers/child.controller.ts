@@ -162,7 +162,7 @@ export class ChildController {
       // Whitelist: only pass safe, parent-controllable fields
       const {
         name, status, dailyLimitMinutes, blockedApps,
-        webFilter, geofences, schedules, fcmToken,
+        webFilter, geofences, schedules, fcmToken, appUsage,
       } = req.body;
 
       const safeUpdates: any = {};
@@ -174,6 +174,7 @@ export class ChildController {
       if (geofences !== undefined) safeUpdates.geofences = geofences;
       if (schedules !== undefined) safeUpdates.schedules = schedules;
       if (fcmToken !== undefined) safeUpdates.fcmToken = fcmToken;
+      if (appUsage !== undefined && Array.isArray(appUsage)) safeUpdates.appUsage = appUsage;
 
       const result = await this.childService.updateChild(id, safeUpdates);
       return ApiResponse.success(res, result, 'Node policy updated');

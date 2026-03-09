@@ -4,14 +4,6 @@ export interface WebFilterConfig {
   categoryFiltering: boolean;
 }
 
-export interface GeofenceConfig {
-  id: string;
-  name: string;
-  lat: number;
-  lng: number;
-  radius: number;
-}
-
 export interface AppUsageRecord {
   name: string;
   packageName:string;
@@ -41,7 +33,12 @@ export type JSONRecord = Record<
 >;
 
 
-// server/types/entities.ts (additions)
+export interface GeofenceTimeWindow {
+  days: ('Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun')[];
+  startTime: string; // "HH:MM" local time — when zone becomes active
+  endTime: string;   // "HH:MM" local time — when zone becomes inactive
+}
+
 export interface GeofenceConfig {
   id: string;
   name: string;
@@ -50,12 +47,26 @@ export interface GeofenceConfig {
   radius: number;
   type: 'safe' | 'restricted' | 'notification';
   notifyOn: ('ENTER' | 'EXIT' | 'DWELL')[];
-  dwellTime?: number; // Minimum seconds for dwell trigger
-  color?: string;     // UI color override
-  priority?: number;  // 1-10, higher = more important
-  enabled: boolean;   // Toggle on/off
+  dwellTime?: number;  // Minimum seconds for dwell trigger (default 60)
+  enabled: boolean;
   createdAt: Date;
   updatedAt: Date;
+
+  // ── Timed geofencing fields (all optional, backwards-compatible) ──────────
+  /** Active time windows; empty/absent means 24/7 */
+  timeWindows?: GeofenceTimeWindow[];
+  /** "HH:MM" — fire GEOFENCE_OVERDUE if child is still INSIDE after this time */
+  alertOnMissedDeparture?: string | null;
+  /** Days (Mon–Sun) to check missed departure; absent means every day */
+  missedDepartureDays?: string[];
+  /** "HH:MM" — fire GEOFENCE_MISSING if child is NOT INSIDE by this time */
+  alertOnMissedArrival?: string | null;
+  /** Days (Mon–Sun) to check missed arrival; absent means every day */
+  missedArrivalDays?: string[];
+  /** ISO timestamp of last GEOFENCE_OVERDUE alert (deduplication — once per day) */
+  lastMissedDepartureAlert?: string | null;
+  /** ISO timestamp of last GEOFENCE_MISSING alert (deduplication — once per day) */
+  lastMissedArrivalAlert?: string | null;
 }
 
 // ENHANCEMENT: New interface for geofence events

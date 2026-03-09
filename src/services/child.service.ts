@@ -7,6 +7,9 @@ import { RewardEntity } from "../entities/Reward";
 import { NotificationService } from "./notification.service";
 import { SmartDeviceService } from "./smartDevice.service";
 import { Between, In, LessThan, MoreThan } from "typeorm";
+import { AlertService } from "./alert.service";
+
+const ALL_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 const alertRepo = () => AppDataSource.getRepository(AlertEntity);
 
@@ -28,7 +31,7 @@ export class ChildService {
   private notificationService = new NotificationService();
 
   async processHeartbeat(childId: string, data: any) {
-    return await AppDataSource.transaction(async (manager) => {
+    const result = await AppDataSource.transaction(async (manager) => {
       const childRepo = manager.getRepository(ChildEntity);
       const logRepo = manager.getRepository(AuditLogEntity);
       const alertRepo = manager.getRepository(AlertEntity);
@@ -60,11 +63,16 @@ export class ChildService {
           child.dailyLimitMinutes > 0 && child.usedMinutes >= child.dailyLimitMinutes
             ? "paused"
             : child.status;
+        const dedupLockReason =
+          child.dailyLimitMinutes > 0 && child.usedMinutes >= child.dailyLimitMinutes
+            ? "daily_limit"
+            : child.status === "paused" ? "manual" : null;
         return {
           policyVersion: now.getTime(),
           policy: {
             id: child.id,
             status: dedupEffectiveStatus,
+            lockReason: dedupLockReason,
             webFilter: child.webFilter,
             dailyLimit: child.dailyLimitMinutes,
             dailyLimitMinutes: child.dailyLimitMinutes,
@@ -120,7 +128,8 @@ export class ChildService {
       const lastSeenDate = new Date(child.lastSeen).toDateString();
       const currentDate = now.toDateString();
 
-      if (lastSeenDate !== currentDate) {
+      const dayRolledOver = lastSeenDate !== currentDate;
+      if (dayRolledOver) {
         usedMinutes = 0;
         await logRepo.save(
           logRepo.create({
@@ -162,6 +171,15 @@ export class ChildService {
         history.push({ lat: validatedLocation!.lat, lng: validatedLocation!.lng, timestamp: now });
         if (history.length > 200) history.splice(0, history.length - 200);
         updates.locationHistory = history;
+      }
+
+      // Zero out per-app usage on day rollover. Apps in today's heartbeat will overwrite
+      // these zeros below; apps not used today correctly show 0 instead of yesterday's totals.
+      if (dayRolledOver && child.appUsage && (child.appUsage as any[]).length > 0) {
+        updates.appUsage = (child.appUsage as any[]).map((app) => ({
+          ...app,
+          timeSpentMinutes: 0,
+        }));
       }
 
       // --- App inventory update ---
@@ -264,12 +282,17 @@ export class ChildService {
         child.dailyLimitMinutes > 0 && usedMinutes >= child.dailyLimitMinutes
           ? "paused"
           : resolvedStatus;
+      const lockReason =
+        child.dailyLimitMinutes > 0 && usedMinutes >= child.dailyLimitMinutes
+          ? "daily_limit"
+          : resolvedStatus === "paused" ? "manual" : null;
 
       return {
         policyVersion: now.getTime(),
         policy: {
           id: child.id,
           status: effectiveStatus,
+          lockReason,
           webFilter: child.webFilter,
           dailyLimit: child.dailyLimitMinutes,
           dailyLimitMinutes: child.dailyLimitMinutes,
@@ -289,6 +312,129 @@ export class ChildService {
         commands: commands.map((c) => ({ id: c.id, type: c.type, payload: c.payload })),
       };
     });
+
+    // Fire timed geofence checks outside the transaction so the row lock is released first.
+    // Errors are swallowed — a failed timed check must never break the heartbeat response.
+    if (data.location?.lat != null && data.location?.lng != null) {
+      this.checkTimedGeofenceAlerts(
+        childId,
+        data.location.lat,
+        data.location.lng,
+        typeof data.timezone === 'string' ? data.timezone : 'UTC',
+      ).catch((e) => console.warn(`[TimedGeofence] check failed for ${childId}: ${e.message}`));
+    }
+
+    return result;
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  /** Haversine distance in metres between two lat/lng points. */
+  private haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6_371_000;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  /** Returns local time info for a given IANA timezone using built-in Intl — no external deps. */
+  private getLocalInfo(timezone: string): { timeStr: string; dateStr: string; dayAbbr: string } {
+    try {
+      const tz = timezone || 'UTC';
+      const now = new Date();
+      // "en-CA" gives YYYY-MM-DD date format
+      const dateStr = now.toLocaleDateString('en-CA', { timeZone: tz });
+      // hour12:false gives 24-hour HH:MM
+      const timeStr = now.toLocaleTimeString('en-CA', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
+      // 3-letter weekday abbreviation (Mon, Tue, …)
+      const dayAbbr = now.toLocaleDateString('en-US', { timeZone: tz, weekday: 'short' });
+      return { timeStr, dateStr, dayAbbr };
+    } catch {
+      const now = new Date();
+      return {
+        timeStr: now.toISOString().slice(11, 16),
+        dateStr: now.toISOString().slice(0, 10),
+        dayAbbr: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][now.getUTCDay()],
+      };
+    }
+  }
+
+  /**
+   * Server-side timed geofence checks — runs after every heartbeat (outside the row lock).
+   * Fires GEOFENCE_OVERDUE if child is still inside a zone past its departure deadline,
+   * and GEOFENCE_MISSING if child is not inside a zone by its arrival deadline.
+   * Each alert fires at most once per calendar day per zone (deduplication via lastMissed* timestamps).
+   */
+  private async checkTimedGeofenceAlerts(
+    childId: string,
+    lat: number,
+    lng: number,
+    timezone: string,
+  ): Promise<void> {
+    const child = await this.childRepo.findOne({ where: { id: childId } });
+    if (!child?.geofences?.length) return;
+
+    const { timeStr, dateStr, dayAbbr } = this.getLocalInfo(timezone);
+    const alertService = new AlertService();
+    let needsUpdate = false;
+
+    for (const zone of child.geofences) {
+      if (!zone.enabled) continue;
+
+      const insideZone =
+        this.haversineDistance(lat, lng, zone.lat, zone.lng) <= zone.radius;
+
+      // ── Missed Departure ──────────────────────────────────────────────────
+      if (zone.alertOnMissedDeparture && insideZone) {
+        const days: string[] = (zone as any).missedDepartureDays ?? ALL_DAYS;
+        const alreadyFiredToday = (zone as any).lastMissedDepartureAlert?.startsWith(dateStr);
+        if (
+          days.includes(dayAbbr) &&
+          timeStr >= zone.alertOnMissedDeparture &&
+          !alreadyFiredToday
+        ) {
+          await alertService.createLog({
+            childId,
+            actionType: 'GEOFENCE_OVERDUE',
+            details: `Still at "${zone.name}" past ${zone.alertOnMissedDeparture}`,
+            isFlagged: true,
+            metadata: { zoneId: zone.id, zoneName: zone.name, type: 'missed_departure' },
+          });
+          (zone as any).lastMissedDepartureAlert = new Date().toISOString();
+          needsUpdate = true;
+        }
+      }
+
+      // ── Missed Arrival ────────────────────────────────────────────────────
+      if (zone.alertOnMissedArrival && !insideZone) {
+        const days: string[] = (zone as any).missedArrivalDays ?? ALL_DAYS;
+        const alreadyFiredToday = (zone as any).lastMissedArrivalAlert?.startsWith(dateStr);
+        if (
+          days.includes(dayAbbr) &&
+          timeStr >= zone.alertOnMissedArrival &&
+          !alreadyFiredToday
+        ) {
+          await alertService.createLog({
+            childId,
+            actionType: 'GEOFENCE_MISSING',
+            details: `Not at "${zone.name}" by ${zone.alertOnMissedArrival}`,
+            isFlagged: true,
+            metadata: { zoneId: zone.id, zoneName: zone.name, type: 'missed_arrival' },
+          });
+          (zone as any).lastMissedArrivalAlert = new Date().toISOString();
+          needsUpdate = true;
+        }
+      }
+    }
+
+    // Persist updated lastMissed* timestamps back to the JSONB column
+    if (needsUpdate) {
+      await this.childRepo.update(childId, { geofences: child.geofences });
+    }
   }
 
   async checkIntegrity(): Promise<{ markedOffline: number; recovered: number }> {
@@ -678,10 +824,15 @@ export class ChildService {
       child.dailyLimitMinutes > 0 && child.usedMinutes >= child.dailyLimitMinutes
         ? "paused"
         : child.status;
+    const policyLockReason =
+      child.dailyLimitMinutes > 0 && child.usedMinutes >= child.dailyLimitMinutes
+        ? "daily_limit"
+        : child.status === "paused" ? "manual" : null;
 
     return {
       id: child.id,
       status: effectiveStatus,
+      lockReason: policyLockReason,
       webFilter: child.webFilter,
       dailyLimit: child.dailyLimitMinutes,
       dailyLimitMinutes: child.dailyLimitMinutes,

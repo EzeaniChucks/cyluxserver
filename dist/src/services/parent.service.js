@@ -25,6 +25,40 @@ const database_1 = require("../database");
 const Parent_1 = require("../entities/Parent");
 const Child_1 = require("../entities/Child");
 const Alert_1 = require("../entities/Alert");
+/**
+ * Computes the effective (parent-visible) status and the reason for any lock.
+ * Priority: daily limit > manual lock > schedule > none.
+ */
+function computeLockState(child) {
+    if (child.dailyLimitMinutes > 0 && child.usedMinutes >= child.dailyLimitMinutes) {
+        return { effectiveStatus: 'paused', lockReason: 'daily_limit' };
+    }
+    if (child.status === 'paused') {
+        return { effectiveStatus: 'paused', lockReason: 'manual' };
+    }
+    // Schedule check: use server UTC time as approximation (no device timezone stored here).
+    // The day/time strings in ScheduleConfig use the device's local time, so this may be
+    // off by a timezone offset, but it's still the best available signal for the parent.
+    if (isScheduleBlockedNow(child.schedules || [])) {
+        return { effectiveStatus: 'paused', lockReason: 'schedule' };
+    }
+    return { effectiveStatus: child.status, lockReason: null };
+}
+function isScheduleBlockedNow(schedules) {
+    const now = new Date();
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayName = days[now.getDay()];
+    const hh = now.getHours().toString().padStart(2, '0');
+    const mm = now.getMinutes().toString().padStart(2, '0');
+    const currentTime = `${hh}:${mm}`;
+    return schedules.some(s => {
+        if (!s.active)
+            return false;
+        if (s.day !== 'Everyday' && s.day !== dayName)
+            return false;
+        return currentTime >= s.startTime && currentTime < s.endTime;
+    });
+}
 class ParentService {
     constructor() {
         this.parentRepo = database_1.AppDataSource.getRepository(Parent_1.ParentEntity);
@@ -60,29 +94,33 @@ class ParentService {
                 familyStats: {
                     totalScreentime: totalMinutes,
                     criticalAlerts,
-                    onlineDevices: children.filter(c => c.status === 'active').length,
+                    onlineDevices: children.filter(c => computeLockState(c).effectiveStatus === 'active').length,
                     managedNodes: children.length
                 },
-                children: children.map(c => ({
-                    id: c.id,
-                    name: c.name,
-                    status: c.status,
-                    battery: c.battery,
-                    usedMinutes: c.usedMinutes,
-                    dailyLimit: c.dailyLimitMinutes,
-                    dailyLimitMinutes: c.dailyLimitMinutes,
-                    lastSeen: c.lastSeen,
-                    location: c.location,
-                    complianceStatus: c.complianceStatus,
-                    deviceType: c.deviceType,
-                    webFilter: c.webFilter,
-                    appUsage: c.appUsage,
-                    usageHistory: c.usageHistory,
-                    blockedApps: c.blockedApps,
-                    geofences: c.geofences,
-                    schedules: c.schedules,
-                    lastInventoryScan: c.lastInventoryScan,
-                })),
+                children: children.map(c => {
+                    const { effectiveStatus, lockReason } = computeLockState(c);
+                    return {
+                        id: c.id,
+                        name: c.name,
+                        status: effectiveStatus,
+                        lockReason,
+                        battery: c.battery,
+                        usedMinutes: c.usedMinutes,
+                        dailyLimit: c.dailyLimitMinutes,
+                        dailyLimitMinutes: c.dailyLimitMinutes,
+                        lastSeen: c.lastSeen,
+                        location: c.location,
+                        complianceStatus: c.complianceStatus,
+                        deviceType: c.deviceType,
+                        webFilter: c.webFilter,
+                        appUsage: c.appUsage,
+                        usageHistory: c.usageHistory,
+                        blockedApps: c.blockedApps,
+                        geofences: c.geofences,
+                        schedules: c.schedules,
+                        lastInventoryScan: c.lastInventoryScan,
+                    };
+                }),
                 recentAlerts: alerts
             };
         });
