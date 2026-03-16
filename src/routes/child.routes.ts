@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { ChildController } from "../controllers/child.controller";
+import { ChildService } from "../services/child.service";
 import { PairingService } from "../services/pairing.service";
 import { ApiResponse } from "../utils/response";
 import { protectParent, protectChild } from "../middlewares/auth";
@@ -11,6 +12,7 @@ import { RewardEntity } from "../entities/Reward";
 
 const router = Router();
 const childController = new ChildController();
+const childService = new ChildService();
 const pairingService = new PairingService();
 const childRepo = AppDataSource.getRepository(ChildEntity);
 const rewardRepo = AppDataSource.getRepository(RewardEntity);
@@ -60,8 +62,15 @@ router.post("/pair", pairingLimiter, async (req: any, res: any) => {
         where: { parent: { id: pairing.parentId }, isEnrolled: true },
       });
       const { allowed, limit } = await subscriptionService.checkLimit(pairing.parentId, 'maxDevices');
-      if (!allowed || (limit !== Infinity && enrolledCount >= (limit as number))) {
-        const limitLabel = limit === Infinity ? 'unlimited' : String(limit);
+      if (!allowed) {
+        return ApiResponse.error(
+          res,
+          'No active subscription. Please subscribe or renew your plan to pair devices.',
+          403,
+        );
+      }
+      if (limit !== Infinity && enrolledCount >= (limit as number)) {
+        const limitLabel = String(limit);
         return ApiResponse.error(
           res,
           `Your plan allows ${limitLabel} device(s). Upgrade to add more.`,
@@ -110,15 +119,21 @@ router.post("/:childId/rewards/claim", protectChild, async (req: any, res: any) 
       unclaimed.map((r) => rewardRepo.update(r.id, { claimed: true, claimedAt: now }))
     );
 
-    // Extend daily limit and unlock if previously paused due to limit
+    // Extend daily limit and release the lock.
+    // Always set status='active' — the reward may have been granted while the
+    // device was manually locked (status='paused') or at its daily limit.
+    // Queue an UNLOCK command so the native TVMonitorService also releases
+    // its hard lock overlay (which persists independently of JS Redux state).
     const child = await childRepo.findOne({ where: { id: childId } });
     if (child) {
       const newLimit = child.dailyLimitMinutes + totalMinutes;
-      const wasAtLimit = child.usedMinutes >= child.dailyLimitMinutes;
       await childRepo.update(childId, {
         dailyLimitMinutes: newLimit,
-        ...(wasAtLimit ? { status: "active" } : {}),
+        status: "active",
       });
+      // Queue UNLOCK so the native enforcement layer (TVMonitorService / MonitorAccessibilityService)
+      // receives an explicit unlock signal on the next heartbeat.
+      await childService.queueCommand(childId, 'UNLOCK');
       return ApiResponse.success(
         res,
         { minutes: totalMinutes, newDailyLimitMinutes: newLimit },

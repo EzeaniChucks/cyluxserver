@@ -29,14 +29,17 @@ router.post('/logs', auth_1.protectChild, (req, res) => __awaiter(void 0, void 0
 // High-performance batch ingestion for offline recovery (protected by device JWT)
 router.post('/logs/batch', auth_1.protectChild, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { logs } = req.body;
+        let { logs } = req.body;
         if (!Array.isArray(logs) || logs.length === 0) {
             return response_1.ApiResponse.error(res, 'Invalid batch format', 400);
         }
         if (logs.length > 500) {
             return response_1.ApiResponse.error(res, 'Batch too large. Maximum 500 logs per request.', 400);
         }
-        // Pass authenticated device ID to enforce ownership in the service
+        // Stamp every entry with the authenticated device ID — same as the /logs endpoint
+        // does with req.body.childId = req.deviceId. Without this, processLogBatch sees
+        // childId=undefined on every entry and the ownership filter drops them all.
+        logs = logs.map((l) => (Object.assign(Object.assign({}, l), { childId: req.deviceId })));
         yield childService.processLogBatch(logs, req.deviceId);
         return response_1.ApiResponse.success(res, null, `Ingested batch of logs`);
     }

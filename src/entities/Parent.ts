@@ -62,6 +62,10 @@ export class ParentEntity {
     @Column({ type: 'varchar', nullable: true })
     detectedVia: string | null;
 
+    /** Parent's phone number for SOS alerts (E.164 format, e.g. +1234567890) */
+    @Column({ type: 'varchar', nullable: true })
+    phone: string | null;
+
     @OneToMany(() => ChildEntity, child => child.parent)
     children: ChildEntity[];
 

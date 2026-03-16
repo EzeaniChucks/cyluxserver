@@ -40,5 +40,8 @@ router.patch('/payout-config', (0, auth_1.protectAdmin)(['superadmin']), admin_c
 // Wallets & Withdrawals
 router.get('/wallets', (0, auth_1.protectAdmin)(['superadmin', 'admin']), admin_controller_1.adminController.getWallets);
 router.get('/withdrawals', (0, auth_1.protectAdmin)(['superadmin', 'admin']), admin_controller_1.adminController.getWithdrawals);
+// System Config (Gemini key, etc.)
+router.get('/system-config', (0, auth_1.protectAdmin)(['superadmin']), admin_controller_1.adminController.getSystemConfig);
+router.patch('/system-config', (0, auth_1.protectAdmin)(['superadmin']), admin_controller_1.adminController.updateSystemConfig);
 exports.default = router;
 //# sourceMappingURL=admin.routes.js.map

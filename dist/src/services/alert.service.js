@@ -15,6 +15,8 @@ const Alert_1 = require("../entities/Alert");
 const AuditLog_1 = require("../entities/AuditLog");
 const notification_service_1 = require("./notification.service");
 const Child_1 = require("../entities/Child");
+const email_service_1 = require("./email.service");
+const sms_service_1 = require("./sms.service");
 const VALID_ACTION_TYPES = [
     'APP_OPEN', 'APP_CLOSE', 'APP_BLOCKED', 'WEB_VISIT', 'WEB_BLOCKED',
     'GEOFENCE_ENTER', 'GEOFENCE_EXIT', 'GEOFENCE_DWELL', 'LIMIT_REACHED',
@@ -26,6 +28,7 @@ const VALID_ACTION_TYPES = [
     'CALL_LOG', 'SMS_RECEIVED', 'WEB_HISTORY',
     'SOCIAL_CONTENT',
     'GEOFENCE_OVERDUE', 'GEOFENCE_MISSING',
+    'APP_INSTALLED',
 ];
 // Social/messaging app packages whose notifications are flagged for parents.
 // Covers major global platforms + regional apps. Unknown apps are caught by
@@ -123,7 +126,7 @@ class AlertService {
     }
     createLog(data) {
         return __awaiter(this, void 0, void 0, function* () {
-            var _a;
+            var _a, _b, _c, _d, _e, _f;
             // Validate actionType against enum
             if (!data.actionType || !VALID_ACTION_TYPES.includes(data.actionType)) {
                 console.warn(`[AlertService] Rejected log with invalid actionType: ${data.actionType}`);
@@ -206,9 +209,25 @@ class AlertService {
                     yield this.notificationService.sendToParent(child.parent.id, `⏰ ${child.name}`, data.details, { type: 'GEOFENCE_TIMED', childId: child.id, alertId: timedAlert.id });
                 }
             }
+            // ── New app install alert ────────────────────────────────────────────────
+            if (data.actionType === 'APP_INSTALLED') {
+                const appName = ((_a = data.metadata) === null || _a === void 0 ? void 0 : _a.appName) || ((_b = data.details) === null || _b === void 0 ? void 0 : _b.split(' (')[0]) || 'Unknown app';
+                const packageName = ((_c = data.metadata) === null || _c === void 0 ? void 0 : _c.packageName) || '';
+                const appAlert = this.alertRepo.create({
+                    childId: data.childId,
+                    type: 'new_app',
+                    message: `${child.name} installed ${appName}`,
+                    severity: 'info',
+                    metadata: { appName, packageName },
+                });
+                yield this.alertRepo.save(appAlert);
+                if (child.parent) {
+                    yield this.notificationService.sendToParent(child.parent.id, `📲 New app on ${child.name}'s device`, `${child.name} installed ${appName}`, { type: 'APP_INSTALLED', childId: child.id, alertId: appAlert.id });
+                }
+            }
             // ── Social media / messaging notification flagging ───────────────────────
             // If a notification from a known social/messaging app is captured, create a parent alert.
-            if (data.actionType === 'NOTIFICATION_RECEIVED' && ((_a = data.metadata) === null || _a === void 0 ? void 0 : _a.appPackage)) {
+            if (data.actionType === 'NOTIFICATION_RECEIVED' && ((_d = data.metadata) === null || _d === void 0 ? void 0 : _d.appPackage)) {
                 const pkg = data.metadata.appPackage;
                 if (FLAGGED_NOTIFICATION_PACKAGES.has(pkg) || looksLikeSocialPackage(pkg)) {
                     const existing = yield this.alertRepo.findOne({
@@ -254,7 +273,18 @@ class AlertService {
                 });
                 yield this.alertRepo.save(alert);
                 if (child.parent) {
-                    yield this.notificationService.sendToParent(child.parent.id, `Safety Alert: ${child.name}`, data.details, { type: 'alert', alertId: alert.id, childId: child.id });
+                    yield this.notificationService.sendToParent(child.parent.id, `Safety Alert: ${child.name}`, data.details, { type: data.actionType === 'SOS_PANIC' ? 'SOS_PANIC' : 'alert', alertId: alert.id, childId: child.id });
+                    // SOS: fire email + SMS in parallel (non-blocking)
+                    if (data.actionType === 'SOS_PANIC') {
+                        const loc = ((_e = data.metadata) === null || _e === void 0 ? void 0 : _e.lat) && ((_f = data.metadata) === null || _f === void 0 ? void 0 : _f.lng)
+                            ? { lat: Number(data.metadata.lat), lng: Number(data.metadata.lng) }
+                            : null;
+                        const ts = data.timestamp instanceof Date ? data.timestamp : new Date();
+                        email_service_1.emailService.sendSosAlert(child.parent.email, child.parent.name, child.name, loc, ts).catch(() => { });
+                        if (child.parent.phone) {
+                            sms_service_1.smsService.sendSosAlert(child.parent.phone, child.name, loc).catch(() => { });
+                        }
+                    }
                 }
             }
             return savedLog;

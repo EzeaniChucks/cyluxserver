@@ -49,4 +49,8 @@ router.patch('/payout-config', protectAdmin(['superadmin']), adminController.upd
 router.get('/wallets', protectAdmin(['superadmin', 'admin']), adminController.getWallets);
 router.get('/withdrawals', protectAdmin(['superadmin', 'admin']), adminController.getWithdrawals);
 
+// System Config (Gemini key, etc.)
+router.get('/system-config', protectAdmin(['superadmin']), adminController.getSystemConfig);
+router.patch('/system-config', protectAdmin(['superadmin']), adminController.updateSystemConfig);
+
 export default router;

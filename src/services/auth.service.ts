@@ -111,7 +111,7 @@ export class AuthService {
     const tokens = this.generateTokens(parent.id);
     return {
       tokens,
-      user: { id: parent.id, email: parent.email, name: parent.name },
+      user: { id: parent.id, email: parent.email, name: parent.name, currency: parent.currency ?? 'usd', phone: parent.phone ?? null },
     };
   }
 
@@ -153,7 +153,7 @@ export class AuthService {
     const tokens = this.generateTokens(parent.id);
     return {
       tokens,
-      user: { id: parent.id, email: parent.email, name: parent.name },
+      user: { id: parent.id, email: parent.email, name: parent.name, currency: parent.currency ?? 'usd', phone: parent.phone ?? null },
     };
   }
 

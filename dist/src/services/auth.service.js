@@ -64,7 +64,7 @@ class AuthService {
     }
     register(data) {
         return __awaiter(this, void 0, void 0, function* () {
-            var _a, _b, _c, _d, _e;
+            var _a, _b, _c, _d, _e, _f, _g;
             if (!data.email || !data.name || !data.password) {
                 throw new Error("All registration fields are required");
             }
@@ -86,7 +86,7 @@ class AuthService {
                     if (result === null || result === void 0 ? void 0 : result.valid)
                         validatedReferralCode = data.referralCode.toUpperCase();
                 }
-                catch (_f) {
+                catch (_h) {
                     // Non-fatal — registration proceeds without referral
                 }
                 // If not an influencer code, try as a parent referral code
@@ -98,7 +98,7 @@ class AuthService {
                             parentReferrerId = result.referrerId;
                         }
                     }
-                    catch (_g) {
+                    catch (_j) {
                         // Non-fatal
                     }
                 }
@@ -124,7 +124,7 @@ class AuthService {
                     const { influencerService } = yield Promise.resolve().then(() => __importStar(require('./influencer.service')));
                     yield influencerService.recordRegistration(validatedReferralCode, parent.id);
                 }
-                catch (_h) {
+                catch (_k) {
                     // Non-fatal
                 }
             }
@@ -134,7 +134,7 @@ class AuthService {
                     const { parentReferralService } = yield Promise.resolve().then(() => __importStar(require('./parentReferral.service')));
                     yield parentReferralService.recordRegistration(parentReferrerId, parent.id);
                 }
-                catch (_j) {
+                catch (_l) {
                     // Non-fatal
                 }
             }
@@ -142,12 +142,13 @@ class AuthService {
             const tokens = this.generateTokens(parent.id);
             return {
                 tokens,
-                user: { id: parent.id, email: parent.email, name: parent.name },
+                user: { id: parent.id, email: parent.email, name: parent.name, currency: (_f = parent.currency) !== null && _f !== void 0 ? _f : 'usd', phone: (_g = parent.phone) !== null && _g !== void 0 ? _g : null },
             };
         });
     }
     login(email, password) {
         return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b;
             const parent = yield this.parentRepo.findOne({
                 where: { email: email.toLowerCase().trim() },
             });
@@ -175,7 +176,7 @@ class AuthService {
             const tokens = this.generateTokens(parent.id);
             return {
                 tokens,
-                user: { id: parent.id, email: parent.email, name: parent.name },
+                user: { id: parent.id, email: parent.email, name: parent.name, currency: (_a = parent.currency) !== null && _a !== void 0 ? _a : 'usd', phone: (_b = parent.phone) !== null && _b !== void 0 ? _b : null },
             };
         });
     }

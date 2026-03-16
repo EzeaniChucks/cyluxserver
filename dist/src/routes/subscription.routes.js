@@ -9,6 +9,8 @@ router.get('/plans', subscription_controller_1.subscriptionController.getPlans);
 // Parent-authenticated routes
 router.get('/', auth_1.protectParent, subscription_controller_1.subscriptionController.getSubscription);
 router.post('/checkout', auth_1.protectParent, subscription_controller_1.subscriptionController.createCheckout);
+router.post('/sync', auth_1.protectParent, subscription_controller_1.subscriptionController.syncSubscription);
+router.post('/change-plan', auth_1.protectParent, subscription_controller_1.subscriptionController.changePlan);
 router.post('/portal', auth_1.protectParent, subscription_controller_1.subscriptionController.createPortal);
 router.post('/cancel', auth_1.protectParent, subscription_controller_1.subscriptionController.cancelSubscription);
 // Note: POST /webhook is registered directly in index.ts (before express.json())

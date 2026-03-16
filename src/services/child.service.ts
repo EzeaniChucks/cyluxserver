@@ -52,6 +52,21 @@ export class ChildService {
 
       // Deduplicate: ignore heartbeats within 5 seconds of the last one
       if (child.lastSeen && now.getTime() - new Date(child.lastSeen).getTime() < 5000) {
+        // Even when deduplicating, persist app inventory if the child has none yet.
+        // This handles the race where the native monitor service sends a bare heartbeat
+        // just before the JS layer sends its first heartbeat (which includes apps).
+        if (data.apps && Array.isArray(data.apps) && data.apps.length > 0 &&
+            (!child.appUsage || (child.appUsage as any[]).length === 0)) {
+          const updatedApps = data.apps.map((app: any) => ({
+            name: app.name,
+            packageName: app.packageName,
+            timeSpentMinutes: 0,
+            limitMinutes: 0,
+            category: "Uncategorized",
+          }));
+          await childRepo.update(childId, { appUsage: updatedApps, lastInventoryScan: now });
+        }
+
         const commands = await this.commandRepo.find({
           where: { childId, status: "pending" },
           order: { createdAt: "ASC" },
@@ -146,6 +161,8 @@ export class ChildService {
         location: validatedLocation,
         usedMinutes,
         lastSeen: now,
+        // Persist timezone so schedule enforcement can use device-local time
+        ...(typeof data.timezone === 'string' && data.timezone ? { timezone: data.timezone } : {}),
         // Only accept tampered=true from device; compliant status requires absence of tamper flag
         complianceStatus: data.tamper === true ? "tampered" : child.complianceStatus,
         // Immediately recover an offline-marked device on heartbeat receipt
@@ -173,9 +190,27 @@ export class ChildService {
         updates.locationHistory = history;
       }
 
-      // Zero out per-app usage on day rollover. Apps in today's heartbeat will overwrite
-      // these zeros below; apps not used today correctly show 0 instead of yesterday's totals.
+      // Snapshot yesterday's app usage into usageHistory before zeroing.
+      // Key format: YYYY-MM-DD (the date that just ended, i.e. lastSeenDate).
       if (dayRolledOver && child.appUsage && (child.appUsage as any[]).length > 0) {
+        const snapshotDate = new Date(child.lastSeen).toISOString().slice(0, 10);
+        const history = typeof child.usageHistory === 'object' && child.usageHistory
+          ? { ...child.usageHistory }
+          : {};
+        // Only snapshot apps that were actually used
+        const usedApps = (child.appUsage as any[]).filter((a) => a.timeSpentMinutes > 0);
+        if (usedApps.length > 0) {
+          history[snapshotDate] = usedApps;
+          // Keep at most 90 days of history to prevent unbounded growth
+          const keys = Object.keys(history).sort();
+          while (keys.length > 90) {
+            delete history[keys.shift()!];
+          }
+          updates.usageHistory = history;
+        }
+
+        // Zero out per-app usage. Apps in today's heartbeat will overwrite
+        // these zeros below; apps not used today correctly show 0 instead of yesterday's totals.
         updates.appUsage = (child.appUsage as any[]).map((app) => ({
           ...app,
           timeSpentMinutes: 0,
@@ -806,6 +841,30 @@ export class ChildService {
       lastStatus,
       uptime,
     };
+  }
+
+  /**
+   * Permanently removes a child device and all associated data.
+   * Cleans up related records before deleting the child row to avoid FK violations.
+   */
+  async deleteChild(childId: string, parentId: string): Promise<void> {
+    const child = await this.childRepo.findOne({
+      where: { id: childId, parent: { id: parentId } as any },
+    });
+    if (!child) throw new Error("Child not found or not authorized");
+
+    const alertRepo = AppDataSource.getRepository(AlertEntity);
+    const rewardRepo = AppDataSource.getRepository(RewardEntity);
+
+    // Delete related rows first to satisfy FK constraints
+    await Promise.all([
+      alertRepo.delete({ childId }),
+      this.commandRepo.delete({ childId }),
+      rewardRepo.delete({ childId }),
+      this.logRepo.delete({ childId }),
+    ]);
+
+    await this.childRepo.delete(childId);
   }
 
   /**

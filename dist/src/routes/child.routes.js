@@ -11,6 +11,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const child_controller_1 = require("../controllers/child.controller");
+const child_service_1 = require("../services/child.service");
 const pairing_service_1 = require("../services/pairing.service");
 const response_1 = require("../utils/response");
 const auth_1 = require("../middlewares/auth");
@@ -21,6 +22,7 @@ const Child_1 = require("../entities/Child");
 const Reward_1 = require("../entities/Reward");
 const router = (0, express_1.Router)();
 const childController = new child_controller_1.ChildController();
+const childService = new child_service_1.ChildService();
 const pairingService = new pairing_service_1.PairingService();
 const childRepo = database_1.AppDataSource.getRepository(Child_1.ChildEntity);
 const rewardRepo = database_1.AppDataSource.getRepository(Reward_1.RewardEntity);
@@ -63,8 +65,11 @@ router.post("/pair", rateLimiter_1.pairingLimiter, (req, res) => __awaiter(void 
                 where: { parent: { id: pairing.parentId }, isEnrolled: true },
             });
             const { allowed, limit } = yield subscription_service_1.subscriptionService.checkLimit(pairing.parentId, 'maxDevices');
-            if (!allowed || (limit !== Infinity && enrolledCount >= limit)) {
-                const limitLabel = limit === Infinity ? 'unlimited' : String(limit);
+            if (!allowed) {
+                return response_1.ApiResponse.error(res, 'No active subscription. Please subscribe or renew your plan to pair devices.', 403);
+            }
+            if (limit !== Infinity && enrolledCount >= limit) {
+                const limitLabel = String(limit);
                 return response_1.ApiResponse.error(res, `Your plan allows ${limitLabel} device(s). Upgrade to add more.`, 403);
             }
         }
@@ -98,12 +103,21 @@ router.post("/:childId/rewards/claim", auth_1.protectChild, (req, res) => __awai
         const now = new Date();
         // Mark all rewards claimed
         yield Promise.all(unclaimed.map((r) => rewardRepo.update(r.id, { claimed: true, claimedAt: now })));
-        // Extend daily limit and unlock if previously paused due to limit
+        // Extend daily limit and release the lock.
+        // Always set status='active' — the reward may have been granted while the
+        // device was manually locked (status='paused') or at its daily limit.
+        // Queue an UNLOCK command so the native TVMonitorService also releases
+        // its hard lock overlay (which persists independently of JS Redux state).
         const child = yield childRepo.findOne({ where: { id: childId } });
         if (child) {
             const newLimit = child.dailyLimitMinutes + totalMinutes;
-            const wasAtLimit = child.usedMinutes >= child.dailyLimitMinutes;
-            yield childRepo.update(childId, Object.assign({ dailyLimitMinutes: newLimit }, (wasAtLimit ? { status: "active" } : {})));
+            yield childRepo.update(childId, {
+                dailyLimitMinutes: newLimit,
+                status: "active",
+            });
+            // Queue UNLOCK so the native enforcement layer (TVMonitorService / MonitorAccessibilityService)
+            // receives an explicit unlock signal on the next heartbeat.
+            yield childService.queueCommand(childId, 'UNLOCK');
             return response_1.ApiResponse.success(res, { minutes: totalMinutes, newDailyLimitMinutes: newLimit }, `${totalMinutes} bonus minutes claimed`);
         }
         return response_1.ApiResponse.success(res, { minutes: totalMinutes }, "Rewards claimed");

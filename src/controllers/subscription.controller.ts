@@ -60,6 +60,43 @@ export class SubscriptionController {
     }
   };
 
+  /**
+   * POST /api/subscription/sync — authenticated parent.
+   * Fetches the latest subscription state from Stripe and syncs the DB.
+   * Call this client-side right after stripe.confirmPayment() succeeds to avoid
+   * waiting for webhook delivery (especially important in local dev).
+   */
+  syncSubscription = async (req: any, res: any) => {
+    try {
+      await subscriptionService.syncSubscriptionForParent(req.user.id);
+      return this.getSubscription(req, res);
+    } catch (err: any) {
+      return ApiResponse.error(res, err.message);
+    }
+  };
+
+  /**
+   * POST /api/subscription/change-plan — authenticated parent.
+   * Switches an active subscription to a different price with Stripe proration.
+   * No payment form needed — Stripe charges/credits the card already on file.
+   */
+  changePlan = async (req: any, res: any) => {
+    try {
+      const { priceId, currency } = req.body;
+      if (!priceId || typeof priceId !== 'string') {
+        return ApiResponse.error(res, 'priceId is required', 400);
+      }
+      await subscriptionService.changePlan(
+        req.user.id,
+        priceId,
+        currency ? String(currency) : undefined,
+      );
+      return this.getSubscription(req, res);
+    } catch (err: any) {
+      return ApiResponse.error(res, err.message, 400);
+    }
+  };
+
   /** POST /api/subscription/portal — authenticated parent */
   createPortal = async (req: any, res: any) => {
     try {

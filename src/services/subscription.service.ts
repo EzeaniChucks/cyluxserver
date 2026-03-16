@@ -52,6 +52,18 @@ export class SubscriptionService {
       await subRepo().save(sub);
     }
 
+    // Self-heal: if the sub is in an ambiguous state but has a Stripe subscription ID,
+    // silently pull the real state from Stripe. This covers the case where both the
+    // client-side sync and the webhook fail — the next page load auto-recovers.
+    if (sub.status === 'incomplete' && sub.stripeSubscriptionId) {
+      try {
+        await this.syncSubscriptionForParent(parentId);
+        sub = (await subRepo().findOne({ where: { parentId } })) ?? sub;
+      } catch {
+        // Non-fatal — return whatever is in the DB
+      }
+    }
+
     return sub;
   }
 
@@ -259,12 +271,79 @@ export class SubscriptionService {
       throw new Error('No billing account found. Please subscribe first.');
     }
 
+    const returnUrl = process.env.APP_URL
+      ? `${process.env.APP_URL}/app/subscription`
+      : 'http://localhost:3000/app/subscription';
+
     const session = await stripe.billingPortal.sessions.create({
       customer: sub.stripeCustomerId,
-      return_url: 'cylux://subscription',
+      return_url: returnUrl,
     });
 
     return { url: session.url };
+  }
+
+  // ─── Change Plan (upgrade or downgrade) ───────────────────────────────────
+
+  /**
+   * Updates an existing Stripe subscription to a new price with proration.
+   * - Upgrade: Stripe immediately invoices the prorated difference and charges
+   *   the card on file. Access upgrades instantly.
+   * - Downgrade: Stripe creates a prorated credit applied to the next invoice.
+   *   Features drop immediately; no refund — credit reduces the next charge.
+   *
+   * For the "keep current features until period end" downgrade experience, use
+   * the Stripe Billing Portal instead (createPortalSession).
+   */
+  async changePlan(
+    parentId: string,
+    priceId: string,
+    currency?: string,
+  ): Promise<void> {
+    const sub = await this.getSubscription(parentId);
+    if (!sub?.stripeSubscriptionId) {
+      throw new Error('No active subscription to change. Please subscribe first.');
+    }
+    if (sub.status !== 'active' && sub.status !== 'past_due') {
+      throw new Error('Can only change plan on an active subscription.');
+    }
+
+    // Validate target plan
+    const monthlyMatch = await planRepo().findOne({ where: { stripePriceId: priceId, isActive: true } });
+    const annualMatch = !monthlyMatch
+      ? await planRepo().findOne({ where: { stripePriceIdAnnual: priceId, isActive: true } })
+      : null;
+    const targetPlan = monthlyMatch || annualMatch;
+
+    if (!targetPlan) throw new Error('Invalid plan selected');
+    if (targetPlan.contactSalesOnly) throw new Error('This plan requires contacting sales.');
+    if (targetPlan.planId === sub.plan) throw new Error('Already on this plan.');
+
+    const billingInterval: 'monthly' | 'annual' = monthlyMatch ? 'monthly' : 'annual';
+
+    // Resolve local-currency price if applicable
+    let effectivePriceId = priceId;
+    const upperCurrency = currency?.toUpperCase();
+    if (upperCurrency && SubscriptionService.SAME_NUMBER_CURRENCIES.has(upperCurrency)) {
+      effectivePriceId = await this.getOrCreateLocalPrice(targetPlan, priceId, upperCurrency);
+    }
+
+    // Get the current subscription item ID from Stripe
+    const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+    const itemId = stripeSub.items.data[0]?.id;
+    if (!itemId) throw new Error('Could not resolve current subscription item.');
+
+    // Update Stripe subscription with proration
+    await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+      items: [{ id: itemId, price: effectivePriceId }],
+      proration_behavior: 'create_prorations',
+    });
+
+    // Sync DB immediately — webhook will also fire and confirm
+    sub.plan = targetPlan.planId;
+    sub.billingInterval = billingInterval;
+    sub.cancelAtPeriodEnd = false;
+    await subRepo().save(sub);
   }
 
   // ─── Cancel Subscription ──────────────────────────────────────────────────
@@ -387,6 +466,24 @@ export class SubscriptionService {
       default:
         break;
     }
+  }
+
+  // ─── Manual Sync (called by client after payment confirmation) ───────────
+
+  /**
+   * Fetches the current subscription state from Stripe and syncs it to the DB.
+   * Called client-side immediately after stripe.confirmPayment() succeeds so the
+   * DB is updated without waiting for the webhook (essential for local dev and
+   * for avoiding the webhook delivery race condition in production).
+   */
+  async syncSubscriptionForParent(parentId: string): Promise<void> {
+    const sub = await subRepo().findOne({ where: { parentId } });
+    if (!sub?.stripeSubscriptionId) return;
+
+    const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId, {
+      expand: ['items.data.price'],
+    });
+    await this.syncFromStripe(stripeSub);
   }
 
   // ─── Internal: Sync from Stripe ───────────────────────────────────────────

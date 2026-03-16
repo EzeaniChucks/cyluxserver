@@ -35,6 +35,14 @@ export interface PlanLimits {
  * Hardcoded defaults — used only for first-boot seeding and as a
  * last-resort fallback when the DB is unreachable.
  * Source of truth after first boot is plan_config_entity in the DB.
+ *
+ * ⚠️  IMPORTANT — env vars for Stripe price IDs (STRIPE_PRICE_*) are read
+ * ONCE during the very first server boot to seed the DB. After that,
+ * seedPlanConfigs() is a no-op (it bails out when rows already exist).
+ * If you rotate Stripe prices, update them via:
+ *   • The superadmin portal → Plans page (stripePriceId / stripePriceIdAnnual fields), OR
+ *   • Direct SQL: UPDATE plan_config_entity SET "stripePriceId"=... WHERE "planId"=...
+ * Restarting the server with new env vars will NOT update existing DB rows.
  */
 export const PLAN_LIMITS: Record<string, PlanLimits> = {
   trial: {

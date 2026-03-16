@@ -17,27 +17,43 @@ function computeLockState(child: ChildEntity): { effectiveStatus: string; lockRe
   if (child.status === 'paused') {
     return { effectiveStatus: 'paused', lockReason: 'manual' };
   }
-  // Schedule check: use server UTC time as approximation (no device timezone stored here).
-  // The day/time strings in ScheduleConfig use the device's local time, so this may be
-  // off by a timezone offset, but it's still the best available signal for the parent.
-  if (isScheduleBlockedNow(child.schedules || [])) {
+  if (isScheduleBlockedNow(child.schedules || [], (child as any).timezone || 'UTC')) {
     return { effectiveStatus: 'paused', lockReason: 'schedule' };
   }
   return { effectiveStatus: child.status, lockReason: null };
 }
 
-function isScheduleBlockedNow(schedules: Array<{ day: string; startTime: string; endTime: string; active: boolean }>): boolean {
-  const now = new Date();
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const dayName = days[now.getDay()];
-  const hh = now.getHours().toString().padStart(2, '0');
-  const mm = now.getMinutes().toString().padStart(2, '0');
-  const currentTime = `${hh}:${mm}`;
-  return schedules.some(s => {
-    if (!s.active) return false;
-    if (s.day !== 'Everyday' && s.day !== dayName) return false;
-    return currentTime >= s.startTime && currentTime < s.endTime;
-  });
+/**
+ * Returns true if the current local time on the device falls within a blocked schedule window.
+ * Uses the device's IANA timezone (persisted from heartbeat) so the check is accurate
+ * regardless of where the server is running.
+ */
+function isScheduleBlockedNow(
+  schedules: Array<{ day: string; startTime: string; endTime: string; active: boolean }>,
+  timezone: string,
+): boolean {
+  try {
+    const tz = timezone || 'UTC';
+    const now = new Date();
+    const dayName = now.toLocaleDateString('en-US', { timeZone: tz, weekday: 'long' });
+    const timeStr = now.toLocaleTimeString('en-CA', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
+    return schedules.some(s => {
+      if (!s.active) return false;
+      if (s.day !== 'Everyday' && s.day !== dayName) return false;
+      return timeStr >= s.startTime && timeStr < s.endTime;
+    });
+  } catch {
+    // Invalid timezone string — fall back to UTC to avoid a crash.
+    const now = new Date();
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayName = days[now.getUTCDay()];
+    const timeStr = `${now.getUTCHours().toString().padStart(2, '0')}:${now.getUTCMinutes().toString().padStart(2, '0')}`;
+    return schedules.some(s => {
+      if (!s.active) return false;
+      if (s.day !== 'Everyday' && s.day !== dayName) return false;
+      return timeStr >= s.startTime && timeStr < s.endTime;
+    });
+  }
 }
 
 export class ParentService {

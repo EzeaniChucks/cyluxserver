@@ -62,6 +62,9 @@ const admin_routes_1 = __importDefault(require("./routes/admin.routes"));
 const influencer_routes_1 = __importDefault(require("./routes/influencer.routes"));
 const wallet_routes_1 = __importDefault(require("./routes/wallet.routes"));
 const smartDevice_routes_1 = __importDefault(require("./routes/smartDevice.routes"));
+const network_routes_1 = __importDefault(require("./routes/network.routes"));
+const blog_routes_1 = __importDefault(require("./routes/blog.routes"));
+const ai_routes_1 = __importDefault(require("./routes/ai.routes"));
 const subscription_controller_1 = require("./controllers/subscription.controller");
 const logger_1 = require("./middlewares/logger");
 const error_1 = require("./middlewares/error");
@@ -70,6 +73,7 @@ const child_service_1 = require("./services/child.service");
 const wallet_service_1 = require("./services/wallet.service");
 const response_1 = require("./utils/response");
 const plans_1 = require("./config/plans");
+const blogSeed_1 = require("./seeds/blogSeed");
 const app = (0, express_1.default)();
 // Security headers (must be first)
 app.use((0, helmet_1.default)());
@@ -142,6 +146,9 @@ app.use("/api/admin", admin_routes_1.default);
 app.use("/api/influencer", influencer_routes_1.default);
 app.use("/api/wallet", wallet_routes_1.default);
 app.use("/api/smart-devices", smartDevice_routes_1.default);
+app.use("/api/network", network_routes_1.default);
+app.use("/api/blog", blog_routes_1.default);
+app.use("/api/ai", ai_routes_1.default);
 app.use(error_1.errorHandler);
 const startBackgroundTasks = () => {
     const childService = new child_service_1.ChildService();
@@ -174,6 +181,7 @@ database_1.AppDataSource.initialize()
     .then(() => __awaiter(void 0, void 0, void 0, function* () {
     console.log("Database connected");
     yield (0, plans_1.seedPlanConfigs)();
+    yield (0, blogSeed_1.seedBlogPosts)();
     startBackgroundTasks();
     const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
     app.listen(PORT, "0.0.0.0", () => {

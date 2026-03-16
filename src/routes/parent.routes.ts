@@ -7,6 +7,8 @@ import { parentReferralService } from "../services/parentReferral.service";
 import { AppDataSource } from "../database";
 import { ChildEntity } from "../entities/Child";
 import { RewardEntity } from "../entities/Reward";
+import { subscriptionService } from "../services/subscription.service";
+import { ChildService } from "../services/child.service";
 
 const router = Router();
 const parentController = new ParentController();
@@ -43,6 +45,18 @@ router.post("/pairing-code", async (req: any, res: any) => {
     return ApiResponse.success(res, pairing, "Pairing code generated");
   } catch (e: any) {
     return ApiResponse.error(res, e.message);
+  }
+});
+
+// --- Delete child device ---
+router.delete("/children/:childId", async (req: any, res: any) => {
+  try {
+    const childService = new ChildService();
+    await childService.deleteChild(req.params.childId, req.user.id);
+    return ApiResponse.success(res, null, "Child device removed");
+  } catch (e: any) {
+    const status = e.message.includes("not found") || e.message.includes("not authorized") ? 404 : 500;
+    return ApiResponse.error(res, e.message, status);
   }
 });
 
@@ -108,6 +122,56 @@ router.get("/children/:childId/rewards", async (req: any, res: any) => {
       take: 50,
     });
     return ApiResponse.success(res, rewards);
+  } catch (e: any) {
+    return ApiResponse.error(res, e.message);
+  }
+});
+
+// --- Usage history (weekly / monthly) — enterprise only ---
+// Returns aggregated app-usage history for the last 7 or 30 days.
+// Today's live appUsage is merged under the current date key.
+router.get("/children/:childId/usage-history", async (req: any, res: any) => {
+  try {
+    const { childId } = req.params;
+    const parentId = req.user.id;
+    const rawPeriod = parseInt(String(req.query.period || "7"), 10);
+    const period: 7 | 30 = rawPeriod === 30 ? 30 : 7;
+
+    const { allowed } = await subscriptionService.checkLimit(parentId, "advancedReports");
+    if (!allowed) {
+      return ApiResponse.error(
+        res,
+        "Usage history reports require an Enterprise plan. Upgrade to access this feature.",
+        403,
+      );
+    }
+
+    const child = await childRepo.findOne({
+      where: { id: childId, parent: { id: parentId } as any },
+    });
+    if (!child) return ApiResponse.error(res, "Child not found", 404);
+
+    const history: Record<string, any[]> =
+      typeof child.usageHistory === "object" && child.usageHistory
+        ? { ...(child.usageHistory as Record<string, any[]>) }
+        : {};
+
+    // Merge today's live appUsage under today's date key
+    const todayKey = new Date().toISOString().slice(0, 10);
+    if (Array.isArray(child.appUsage) && (child.appUsage as any[]).length > 0) {
+      history[todayKey] = child.appUsage as any[];
+    }
+
+    // Filter to the requested period
+    const result: Record<string, any[]> = {};
+    for (let i = 0; i < period; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      if (history[key]) result[key] = history[key];
+    }
+
+    return ApiResponse.success(res, { period, history: result });
   } catch (e: any) {
     return ApiResponse.error(res, e.message);
   }

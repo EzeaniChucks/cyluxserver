@@ -18,6 +18,8 @@ const parentReferral_service_1 = require("../services/parentReferral.service");
 const database_1 = require("../database");
 const Child_1 = require("../entities/Child");
 const Reward_1 = require("../entities/Reward");
+const subscription_service_1 = require("../services/subscription.service");
+const child_service_1 = require("../services/child.service");
 const router = (0, express_1.Router)();
 const parentController = new parent_controller_1.ParentController();
 const pairingService = new pairing_service_1.PairingService();
@@ -48,6 +50,18 @@ router.post("/pairing-code", (req, res) => __awaiter(void 0, void 0, void 0, fun
     }
     catch (e) {
         return response_1.ApiResponse.error(res, e.message);
+    }
+}));
+// --- Delete child device ---
+router.delete("/children/:childId", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const childService = new child_service_1.ChildService();
+        yield childService.deleteChild(req.params.childId, req.user.id);
+        return response_1.ApiResponse.success(res, null, "Child device removed");
+    }
+    catch (e) {
+        const status = e.message.includes("not found") || e.message.includes("not authorized") ? 404 : 500;
+        return response_1.ApiResponse.error(res, e.message, status);
     }
 }));
 // --- Single child detail (parent-scoped, includes appUsage) ---
@@ -109,6 +123,46 @@ router.get("/children/:childId/rewards", (req, res) => __awaiter(void 0, void 0,
             take: 50,
         });
         return response_1.ApiResponse.success(res, rewards);
+    }
+    catch (e) {
+        return response_1.ApiResponse.error(res, e.message);
+    }
+}));
+// --- Usage history (weekly / monthly) — enterprise only ---
+// Returns aggregated app-usage history for the last 7 or 30 days.
+// Today's live appUsage is merged under the current date key.
+router.get("/children/:childId/usage-history", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { childId } = req.params;
+        const parentId = req.user.id;
+        const rawPeriod = parseInt(String(req.query.period || "7"), 10);
+        const period = rawPeriod === 30 ? 30 : 7;
+        const { allowed } = yield subscription_service_1.subscriptionService.checkLimit(parentId, "advancedReports");
+        if (!allowed) {
+            return response_1.ApiResponse.error(res, "Usage history reports require an Enterprise plan. Upgrade to access this feature.", 403);
+        }
+        const child = yield childRepo.findOne({
+            where: { id: childId, parent: { id: parentId } },
+        });
+        if (!child)
+            return response_1.ApiResponse.error(res, "Child not found", 404);
+        const history = typeof child.usageHistory === "object" && child.usageHistory
+            ? Object.assign({}, child.usageHistory) : {};
+        // Merge today's live appUsage under today's date key
+        const todayKey = new Date().toISOString().slice(0, 10);
+        if (Array.isArray(child.appUsage) && child.appUsage.length > 0) {
+            history[todayKey] = child.appUsage;
+        }
+        // Filter to the requested period
+        const result = {};
+        for (let i = 0; i < period; i++) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const key = d.toISOString().slice(0, 10);
+            if (history[key])
+                result[key] = history[key];
+        }
+        return response_1.ApiResponse.success(res, { period, history: result });
     }
     catch (e) {
         return response_1.ApiResponse.error(res, e.message);

@@ -3,6 +3,8 @@ import { AlertEntity } from '../entities/Alert';
 import { AuditLogEntity } from '../entities/AuditLog';
 import { NotificationService } from './notification.service';
 import { ChildEntity } from '../entities/Child';
+import { emailService } from './email.service';
+import { smsService } from './sms.service';
 
 const VALID_ACTION_TYPES = [
   'APP_OPEN', 'APP_CLOSE', 'APP_BLOCKED', 'WEB_VISIT', 'WEB_BLOCKED',
@@ -15,6 +17,7 @@ const VALID_ACTION_TYPES = [
   'CALL_LOG', 'SMS_RECEIVED', 'WEB_HISTORY',
   'SOCIAL_CONTENT',
   'GEOFENCE_OVERDUE', 'GEOFENCE_MISSING',
+  'APP_INSTALLED',
 ] as const;
 
 // Social/messaging app packages whose notifications are flagged for parents.
@@ -224,6 +227,30 @@ export class AlertService {
       }
     }
 
+    // ── New app install alert ────────────────────────────────────────────────
+    if (data.actionType === 'APP_INSTALLED') {
+      const appName = data.metadata?.appName || data.details?.split(' (')[0] || 'Unknown app';
+      const packageName = data.metadata?.packageName || '';
+
+      const appAlert = this.alertRepo.create({
+        childId: data.childId,
+        type: 'new_app' as any,
+        message: `${child.name} installed ${appName}`,
+        severity: 'info',
+        metadata: { appName, packageName },
+      });
+      await this.alertRepo.save(appAlert);
+
+      if (child.parent) {
+        await this.notificationService.sendToParent(
+          child.parent.id,
+          `📲 New app on ${child.name}'s device`,
+          `${child.name} installed ${appName}`,
+          { type: 'APP_INSTALLED', childId: child.id, alertId: appAlert.id },
+        );
+      }
+    }
+
     // ── Social media / messaging notification flagging ───────────────────────
     // If a notification from a known social/messaging app is captured, create a parent alert.
     if (data.actionType === 'NOTIFICATION_RECEIVED' && data.metadata?.appPackage) {
@@ -278,8 +305,20 @@ export class AlertService {
           child.parent.id,
           `Safety Alert: ${child.name}`,
           data.details,
-          { type: 'alert', alertId: alert.id, childId: child.id }
+          { type: data.actionType === 'SOS_PANIC' ? 'SOS_PANIC' : 'alert', alertId: alert.id, childId: child.id }
         );
+
+        // SOS: fire email + SMS in parallel (non-blocking)
+        if (data.actionType === 'SOS_PANIC') {
+          const loc = data.metadata?.lat && data.metadata?.lng
+            ? { lat: Number(data.metadata.lat), lng: Number(data.metadata.lng) }
+            : null;
+          const ts = data.timestamp instanceof Date ? data.timestamp : new Date();
+          emailService.sendSosAlert(child.parent.email, child.parent.name, child.name, loc, ts).catch(() => {});
+          if (child.parent.phone) {
+            smsService.sendSosAlert(child.parent.phone, child.name, loc).catch(() => {});
+          }
+        }
       }
     }
 

@@ -15,6 +15,9 @@ import adminRoutes from "./routes/admin.routes";
 import influencerRoutes from "./routes/influencer.routes";
 import walletRoutes from "./routes/wallet.routes";
 import smartDeviceRoutes from "./routes/smartDevice.routes";
+import networkRoutes from "./routes/network.routes";
+import blogRoutes from "./routes/blog.routes";
+import aiRoutes from "./routes/ai.routes";
 import { subscriptionController } from "./controllers/subscription.controller";
 import { requestLogger } from "./middlewares/logger";
 import { errorHandler } from "./middlewares/error";
@@ -23,6 +26,7 @@ import { ChildService } from "./services/child.service";
 import { walletService } from "./services/wallet.service";
 import { ApiResponse } from "./utils/response";
 import { seedPlanConfigs } from "./config/plans";
+import { seedBlogPosts } from "./seeds/blogSeed";
 
 const app = express();
 
@@ -115,6 +119,9 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/influencer", influencerRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/smart-devices", smartDeviceRoutes);
+app.use("/api/network", networkRoutes);
+app.use("/api/blog", blogRoutes);
+app.use("/api/ai", aiRoutes);
 
 app.use(errorHandler);
 
@@ -152,6 +159,7 @@ AppDataSource.initialize()
   .then(async () => {
     console.log("Database connected");
     await seedPlanConfigs();
+    await seedBlogPosts();
     startBackgroundTasks();
     const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
     app.listen(PORT, "0.0.0.0", () => {

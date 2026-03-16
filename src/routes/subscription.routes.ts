@@ -10,6 +10,8 @@ router.get('/plans', subscriptionController.getPlans);
 // Parent-authenticated routes
 router.get('/', protectParent, subscriptionController.getSubscription);
 router.post('/checkout', protectParent, subscriptionController.createCheckout);
+router.post('/sync', protectParent, subscriptionController.syncSubscription);
+router.post('/change-plan', protectParent, subscriptionController.changePlan);
 router.post('/portal', protectParent, subscriptionController.createPortal);
 router.post('/cancel', protectParent, subscriptionController.cancelSubscription);
 

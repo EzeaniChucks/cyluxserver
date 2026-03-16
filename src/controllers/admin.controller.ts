@@ -3,6 +3,7 @@ import { adminService } from '../services/admin.service';
 import { influencerService } from '../services/influencer.service';
 import { parentReferralService } from '../services/parentReferral.service';
 import { walletService } from '../services/wallet.service';
+import { systemConfigService } from '../services/system-config.service';
 import { ApiResponse } from '../utils/response';
 
 export class AdminController {
@@ -313,6 +314,33 @@ export class AdminController {
         limit ? parseInt(limit) : 20,
       );
       return ApiResponse.success(res, result, 'Withdrawal history');
+    } catch (err: any) {
+      return ApiResponse.error(res, err.message);
+    }
+  };
+
+  // ─── System Config ────────────────────────────────────────────────────────
+
+  getSystemConfig = async (req: any, res: any) => {
+    try {
+      const config = await systemConfigService.getConfig();
+      // Never expose the raw key — mask it
+      return ApiResponse.success(res, {
+        geminiKeyConfigured: !!config.geminiApiKey,
+        geminiKeyStatus: config.geminiKeyStatus,
+        geminiKeyLastError: config.geminiKeyLastError,
+        updatedAt: config.updatedAt,
+      }, 'System config');
+    } catch (err: any) {
+      return ApiResponse.error(res, err.message);
+    }
+  };
+
+  updateSystemConfig = async (req: any, res: any) => {
+    try {
+      const { geminiApiKey } = req.body;
+      await systemConfigService.updateConfig({ geminiApiKey });
+      return ApiResponse.success(res, null, 'System config updated');
     } catch (err: any) {
       return ApiResponse.error(res, err.message);
     }

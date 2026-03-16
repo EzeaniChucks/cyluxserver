@@ -85,6 +85,10 @@ __decorate([
     __metadata("design:type", Object)
 ], ParentEntity.prototype, "detectedVia", void 0);
 __decorate([
+    (0, typeorm_1.Column)({ type: 'varchar', nullable: true }),
+    __metadata("design:type", Object)
+], ParentEntity.prototype, "phone", void 0);
+__decorate([
     (0, typeorm_1.OneToMany)(() => Child_1.ChildEntity, child => child.parent),
     __metadata("design:type", Array)
 ], ParentEntity.prototype, "children", void 0);

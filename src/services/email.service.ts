@@ -129,6 +129,36 @@ export class EmailService {
     return this.send(to, 'Cylux: Payment failed — action required', html);
   }
 
+  async sendSosAlert(
+    to: string,
+    parentName: string,
+    childName: string,
+    location: { lat: number; lng: number } | null,
+    timestamp: Date,
+  ) {
+    const timeStr = timestamp.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+    const mapLink = location
+      ? `https://www.google.com/maps?q=${location.lat},${location.lng}`
+      : null;
+
+    const content = `
+      <p>Hi ${parentName},</p>
+      <p style="font-size:16px; font-weight:900; color:#ef4444;">&#x26A0; ${childName} has pressed the SOS panic button.</p>
+      <p>This alert was triggered at <strong>${timeStr}</strong>.</p>
+      ${location ? `
+      <p>Last known location:</p>
+      <center>
+        <a href="${mapLink}" class="button" style="background-color:#ef4444;">View on Map</a>
+      </center>
+      <p style="font-size:12px; color:#94a3b8; margin-top:8px;">${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}</p>
+      ` : '<p style="color:#94a3b8;">No GPS location available at this time.</p>'}
+      <p style="margin-top:24px;">Open the Cylux app immediately to check on ${childName}.</p>
+    `;
+
+    const html = this.getBaseTemplate(content, `SOS Alert from ${childName}`);
+    return this.send(to, `SOS ALERT: ${childName} needs help!`, html);
+  }
+
   async sendWelcome(to: string, name: string) {
     const content = `
       <p>Hi ${name},</p>

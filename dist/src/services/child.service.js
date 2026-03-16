@@ -61,6 +61,20 @@ class ChildService {
                 const now = new Date();
                 // Deduplicate: ignore heartbeats within 5 seconds of the last one
                 if (child.lastSeen && now.getTime() - new Date(child.lastSeen).getTime() < 5000) {
+                    // Even when deduplicating, persist app inventory if the child has none yet.
+                    // This handles the race where the native monitor service sends a bare heartbeat
+                    // just before the JS layer sends its first heartbeat (which includes apps).
+                    if (data.apps && Array.isArray(data.apps) && data.apps.length > 0 &&
+                        (!child.appUsage || child.appUsage.length === 0)) {
+                        const updatedApps = data.apps.map((app) => ({
+                            name: app.name,
+                            packageName: app.packageName,
+                            timeSpentMinutes: 0,
+                            limitMinutes: 0,
+                            category: "Uncategorized",
+                        }));
+                        yield childRepo.update(childId, { appUsage: updatedApps, lastInventoryScan: now });
+                    }
                     const commands = yield this.commandRepo.find({
                         where: { childId, status: "pending" },
                         order: { createdAt: "ASC" },
@@ -134,9 +148,9 @@ class ChildService {
                     }));
                 }
                 // --- Build update object ---
-                const updates = Object.assign({ battery: validatedBattery, location: validatedLocation, usedMinutes, lastSeen: now, 
+                const updates = Object.assign(Object.assign(Object.assign({ battery: validatedBattery, location: validatedLocation, usedMinutes, lastSeen: now }, (typeof data.timezone === 'string' && data.timezone ? { timezone: data.timezone } : {})), { 
                     // Only accept tampered=true from device; compliant status requires absence of tamper flag
-                    complianceStatus: data.tamper === true ? "tampered" : child.complianceStatus }, (child.status === "offline" ? { status: "active" } : {}));
+                    complianceStatus: data.tamper === true ? "tampered" : child.complianceStatus }), (child.status === "offline" ? { status: "active" } : {}));
                 // --- Append to locationHistory (capped at 200 entries) ---
                 // Only record a new point when the device has moved by at least ~15 metres
                 // (0.00015° latitude ≈ 16.7 m). This prevents filling the 200-entry cap
@@ -155,9 +169,25 @@ class ChildService {
                         history.splice(0, history.length - 200);
                     updates.locationHistory = history;
                 }
-                // Zero out per-app usage on day rollover. Apps in today's heartbeat will overwrite
-                // these zeros below; apps not used today correctly show 0 instead of yesterday's totals.
+                // Snapshot yesterday's app usage into usageHistory before zeroing.
+                // Key format: YYYY-MM-DD (the date that just ended, i.e. lastSeenDate).
                 if (dayRolledOver && child.appUsage && child.appUsage.length > 0) {
+                    const snapshotDate = new Date(child.lastSeen).toISOString().slice(0, 10);
+                    const history = typeof child.usageHistory === 'object' && child.usageHistory
+                        ? Object.assign({}, child.usageHistory) : {};
+                    // Only snapshot apps that were actually used
+                    const usedApps = child.appUsage.filter((a) => a.timeSpentMinutes > 0);
+                    if (usedApps.length > 0) {
+                        history[snapshotDate] = usedApps;
+                        // Keep at most 90 days of history to prevent unbounded growth
+                        const keys = Object.keys(history).sort();
+                        while (keys.length > 90) {
+                            delete history[keys.shift()];
+                        }
+                        updates.usageHistory = history;
+                    }
+                    // Zero out per-app usage. Apps in today's heartbeat will overwrite
+                    // these zeros below; apps not used today correctly show 0 instead of yesterday's totals.
                     updates.appUsage = child.appUsage.map((app) => (Object.assign(Object.assign({}, app), { timeSpentMinutes: 0 })));
                 }
                 // --- App inventory update ---
@@ -686,6 +716,29 @@ class ChildService {
                 lastStatus,
                 uptime,
             };
+        });
+    }
+    /**
+     * Permanently removes a child device and all associated data.
+     * Cleans up related records before deleting the child row to avoid FK violations.
+     */
+    deleteChild(childId, parentId) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const child = yield this.childRepo.findOne({
+                where: { id: childId, parent: { id: parentId } },
+            });
+            if (!child)
+                throw new Error("Child not found or not authorized");
+            const alertRepo = database_1.AppDataSource.getRepository(Alert_1.AlertEntity);
+            const rewardRepo = database_1.AppDataSource.getRepository(Reward_1.RewardEntity);
+            // Delete related rows first to satisfy FK constraints
+            yield Promise.all([
+                alertRepo.delete({ childId }),
+                this.commandRepo.delete({ childId }),
+                rewardRepo.delete({ childId }),
+                this.logRepo.delete({ childId }),
+            ]);
+            yield this.childRepo.delete(childId);
         });
     }
     /**

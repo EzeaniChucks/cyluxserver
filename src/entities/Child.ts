@@ -103,6 +103,11 @@ export class ChildEntity {
   @Column({ type: 'varchar', nullable: true })
   deviceJwt: string | null;
 
+  /** IANA timezone string sent by the child device in each heartbeat, e.g. "America/New_York".
+   *  Used for accurate schedule enforcement (converting server UTC → device local time). */
+  @Column({ type: 'varchar', nullable: true })
+  timezone: string | null;
+
   @ManyToOne(() => ParentEntity, (parent) => parent.children)
   parent: ParentEntity;
 

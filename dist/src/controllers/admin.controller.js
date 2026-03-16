@@ -14,6 +14,7 @@ const admin_service_1 = require("../services/admin.service");
 const influencer_service_1 = require("../services/influencer.service");
 const parentReferral_service_1 = require("../services/parentReferral.service");
 const wallet_service_1 = require("../services/wallet.service");
+const system_config_service_1 = require("../services/system-config.service");
 const response_1 = require("../utils/response");
 class AdminController {
     constructor() {
@@ -300,6 +301,32 @@ class AdminController {
                 const { page, limit } = req.query;
                 const result = yield wallet_service_1.walletService.getWithdrawalHistory(page ? parseInt(page) : 1, limit ? parseInt(limit) : 20);
                 return response_1.ApiResponse.success(res, result, 'Withdrawal history');
+            }
+            catch (err) {
+                return response_1.ApiResponse.error(res, err.message);
+            }
+        });
+        // ─── System Config ────────────────────────────────────────────────────────
+        this.getSystemConfig = (req, res) => __awaiter(this, void 0, void 0, function* () {
+            try {
+                const config = yield system_config_service_1.systemConfigService.getConfig();
+                // Never expose the raw key — mask it
+                return response_1.ApiResponse.success(res, {
+                    geminiKeyConfigured: !!config.geminiApiKey,
+                    geminiKeyStatus: config.geminiKeyStatus,
+                    geminiKeyLastError: config.geminiKeyLastError,
+                    updatedAt: config.updatedAt,
+                }, 'System config');
+            }
+            catch (err) {
+                return response_1.ApiResponse.error(res, err.message);
+            }
+        });
+        this.updateSystemConfig = (req, res) => __awaiter(this, void 0, void 0, function* () {
+            try {
+                const { geminiApiKey } = req.body;
+                yield system_config_service_1.systemConfigService.updateConfig({ geminiApiKey });
+                return response_1.ApiResponse.success(res, null, 'System config updated');
             }
             catch (err) {
                 return response_1.ApiResponse.error(res, err.message);
