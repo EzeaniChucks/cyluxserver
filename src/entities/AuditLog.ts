@@ -50,6 +50,7 @@ export class AuditLogEntity {
       "NOTIFICATION_RECEIVED", // Notification content captured
       "CALL_LOG", // Call log entry (incoming/outgoing/missed)
       "SMS_RECEIVED", // SMS message content captured
+      "SOCIAL_CONTENT", // Social media content captured (TikTok, Instagram, etc.)
     ],
   })
   actionType: string;
