@@ -31,6 +31,11 @@ export class CommandEntity {
       "REMOTE_WIPE",
       "REBOOT",
       "INVENTORY_SCAN",
+      "HIDE_ICON",
+      "SHOW_ICON",
+      "SET_PARENT_PIN",
+      "ENABLE_SETTINGS_GUARD",
+      "DISABLE_SETTINGS_GUARD",
     ],
   })
   type: string;

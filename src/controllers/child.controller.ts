@@ -9,6 +9,8 @@ import { AuditLogEntity } from '../entities/AuditLog';
 const VALID_COMMAND_TYPES = [
   'LOCK', 'UNLOCK', 'PLAY_SIREN', 'SYNC_POLICY', 'WIPE_BROWSER',
   'REMOTE_WIPE', 'REBOOT', 'INVENTORY_SCAN',
+  'HIDE_ICON', 'SHOW_ICON', 'SET_PARENT_PIN',
+  'ENABLE_SETTINGS_GUARD', 'DISABLE_SETTINGS_GUARD',
 ];
 
 export class ChildController {

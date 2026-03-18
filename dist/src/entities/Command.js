@@ -39,6 +39,11 @@ __decorate([
             "REMOTE_WIPE",
             "REBOOT",
             "INVENTORY_SCAN",
+            "HIDE_ICON",
+            "SHOW_ICON",
+            "SET_PARENT_PIN",
+            "ENABLE_SETTINGS_GUARD",
+            "DISABLE_SETTINGS_GUARD",
         ],
     }),
     __metadata("design:type", String)
