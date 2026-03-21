@@ -115,6 +115,8 @@ export class ParentService {
           geofences: c.geofences,
           schedules: c.schedules,
           lastInventoryScan: c.lastInventoryScan,
+          iconHidden: c.iconHidden,
+          settingsGuardEnabled: c.settingsGuardEnabled,
           // Last 50 location points for the map trail (200-point server cap → trim for API perf)
           locationHistory: Array.isArray(c.locationHistory) ? c.locationHistory.slice(-50) : [],
         };

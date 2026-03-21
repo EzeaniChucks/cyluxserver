@@ -8,7 +8,7 @@ import { AppDataSource } from "../database";
 import { ChildEntity } from "../entities/Child";
 import { RewardEntity } from "../entities/Reward";
 import { subscriptionService } from "../services/subscription.service";
-import { ChildService } from "../services/child.service";
+import { ChildService, deviceLocalDateString } from "../services/child.service";
 
 const router = Router();
 const parentController = new ParentController();
@@ -141,7 +141,7 @@ router.get("/children/:childId/usage-history", async (req: any, res: any) => {
     if (!allowed) {
       return ApiResponse.error(
         res,
-        "Usage history reports require an Enterprise plan. Upgrade to access this feature.",
+        "Usage history reports require a Premium Plus plan or higher. Upgrade to access this feature.",
         403,
       );
     }
@@ -156,18 +156,21 @@ router.get("/children/:childId/usage-history", async (req: any, res: any) => {
         ? { ...(child.usageHistory as Record<string, any[]>) }
         : {};
 
-    // Merge today's live appUsage under today's date key
-    const todayKey = new Date().toISOString().slice(0, 10);
-    if (Array.isArray(child.appUsage) && (child.appUsage as any[]).length > 0) {
-      history[todayKey] = child.appUsage as any[];
+    // Merge today's live appUsage under today's date key using device-local timezone
+    // so the date matches the stored snapshot keys (which are also device-local).
+    const childTz = child.timezone ?? null;
+    const todayKey = deviceLocalDateString(new Date(), childTz);
+    if (Array.isArray(child.appUsage)) {
+      const usedToday = (child.appUsage as any[]).filter((a) => a.timeSpentMinutes > 0);
+      if (usedToday.length > 0) history[todayKey] = usedToday;
     }
 
-    // Filter to the requested period
+    // Filter to the requested period using device-local dates
     const result: Record<string, any[]> = {};
     for (let i = 0; i < period; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const key = d.toISOString().slice(0, 10);
+      // Step back i days from today in device-local time by subtracting ms
+      const d = new Date(Date.now() - i * 86_400_000);
+      const key = deviceLocalDateString(d, childTz);
       if (history[key]) result[key] = history[key];
     }
 

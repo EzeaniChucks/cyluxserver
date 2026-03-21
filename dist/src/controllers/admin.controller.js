@@ -312,9 +312,9 @@ class AdminController {
                 const config = yield system_config_service_1.systemConfigService.getConfig();
                 // Never expose the raw key — mask it
                 return response_1.ApiResponse.success(res, {
-                    geminiKeyConfigured: !!config.geminiApiKey,
-                    geminiKeyStatus: config.geminiKeyStatus,
-                    geminiKeyLastError: config.geminiKeyLastError,
+                    claudeKeyConfigured: !!config.claudeApiKey,
+                    claudeKeyStatus: config.claudeKeyStatus,
+                    claudeKeyLastError: config.claudeKeyLastError,
                     updatedAt: config.updatedAt,
                 }, 'System config');
             }
@@ -324,8 +324,8 @@ class AdminController {
         });
         this.updateSystemConfig = (req, res) => __awaiter(this, void 0, void 0, function* () {
             try {
-                const { geminiApiKey } = req.body;
-                yield system_config_service_1.systemConfigService.updateConfig({ geminiApiKey });
+                const { claudeApiKey } = req.body;
+                yield system_config_service_1.systemConfigService.updateConfig({ claudeApiKey });
                 return response_1.ApiResponse.success(res, null, 'System config updated');
             }
             catch (err) {

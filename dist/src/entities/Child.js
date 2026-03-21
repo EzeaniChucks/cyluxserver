@@ -117,6 +117,22 @@ __decorate([
     __metadata("design:type", Object)
 ], ChildEntity.prototype, "timezone", void 0);
 __decorate([
+    (0, typeorm_1.Column)({ default: false }),
+    __metadata("design:type", Boolean)
+], ChildEntity.prototype, "iconHidden", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ default: false }),
+    __metadata("design:type", Boolean)
+], ChildEntity.prototype, "settingsGuardEnabled", void 0);
+__decorate([
+    (0, typeorm_1.Column)('jsonb', { nullable: true, default: null }),
+    __metadata("design:type", Object)
+], ChildEntity.prototype, "aiReport", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ type: 'varchar', nullable: true, default: null }),
+    __metadata("design:type", Object)
+], ChildEntity.prototype, "aiReportDate", void 0);
+__decorate([
     (0, typeorm_1.ManyToOne)(() => Parent_1.ParentEntity, (parent) => parent.children),
     __metadata("design:type", Parent_1.ParentEntity)
 ], ChildEntity.prototype, "parent", void 0);

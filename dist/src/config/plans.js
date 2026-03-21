@@ -112,7 +112,7 @@ exports.PLAN_LIMITS = {
     },
     premium_plus: {
         name: 'Premium Plus',
-        description: 'Everything in Premium + Smart TV & unlimited geofences',
+        description: 'Everything in Premium + Smart TV, unlimited geofences & usage reports',
         price: 14.99,
         maxDevices: 5,
         maxGeofences: Infinity,
@@ -122,7 +122,7 @@ exports.PLAN_LIMITS = {
         callMonitoring: true,
         smsMonitoring: true,
         smartTv: true,
-        advancedReports: false,
+        advancedReports: true,
         schoolDashboard: false,
         priceId: process.env.STRIPE_PRICE_PREMIUM_PLUS_MONTHLY,
         stripePriceIdAnnual: process.env.STRIPE_PRICE_PREMIUM_PLUS_ANNUAL,

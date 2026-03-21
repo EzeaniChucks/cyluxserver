@@ -108,6 +108,27 @@ export class ChildEntity {
   @Column({ type: 'varchar', nullable: true })
   timezone: string | null;
 
+  /** True when the parent has hidden the app icon on the child device via HIDE_ICON command. */
+  @Column({ default: false })
+  iconHidden: boolean;
+
+  /** True when the parent has set a PIN and enabled the Settings Guard on the child device. */
+  @Column({ default: false })
+  settingsGuardEnabled: boolean;
+
+  /** Cached daily AI compliance report. Refreshed once per UTC day. */
+  @Column('jsonb', { nullable: true, default: null })
+  aiReport: {
+    safetyScore: number;
+    summary: string;
+    risks: string[];
+    suggestions: string[];
+  } | null;
+
+  /** UTC date (YYYY-MM-DD) when aiReport was last generated. */
+  @Column({ type: 'varchar', nullable: true, default: null })
+  aiReportDate: string | null;
+
   @ManyToOne(() => ParentEntity, (parent) => parent.children)
   parent: ParentEntity;
 

@@ -115,7 +115,7 @@ class PairingService {
             // Cleanup pairing record
             yield this.pairingRepo.delete(pairing.id);
             // Notify Parent
-            yield email_service_1.emailService.send(parent.email, `Node Enrolled: ${pairing.childName}`, `<p>Managed Node <b>${pairing.childName}</b> has successfully synchronized with the GuardianHub cluster using ${(deviceType === null || deviceType === void 0 ? void 0 : deviceType.toUpperCase()) || 'unknown'} protocol.</p>`);
+            yield email_service_1.emailService.send(parent.email, `Node Enrolled: ${pairing.childName}`, `<p>Managed Node <b>${pairing.childName}</b> has successfully synchronized with the Cylux platform using ${(deviceType === null || deviceType === void 0 ? void 0 : deviceType.toUpperCase()) || 'unknown'} protocol.</p>`);
             return { child, deviceToken };
         });
     }

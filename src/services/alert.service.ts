@@ -135,6 +135,21 @@ export class AlertService {
       data.details = data.details.substring(0, 2000);
     }
 
+    // Server-side dedup for NOTIFICATION_RECEIVED: drop if the same child sent
+    // the identical details string within the last 60 seconds. This catches
+    // bursts that slip through the device-side 3s debounce (e.g. WhatsApp group
+    // chats firing rapid-fire notifications with the same summary text).
+    if (data.actionType === 'NOTIFICATION_RECEIVED' && data.details && data.childId) {
+      const sixtySecondsAgo = new Date(Date.now() - 60_000);
+      const duplicate = await this.logRepo.findOne({
+        where: { childId: data.childId, actionType: 'NOTIFICATION_RECEIVED', details: data.details },
+        order: { timestamp: 'DESC' },
+      });
+      if (duplicate && duplicate.timestamp > sixtySecondsAgo) {
+        return null;
+      }
+    }
+
     // Verify child exists and is enrolled
     const child = await this.childRepo.findOne({
       where: { id: data.childId },

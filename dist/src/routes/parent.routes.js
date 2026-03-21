@@ -132,6 +132,7 @@ router.get("/children/:childId/rewards", (req, res) => __awaiter(void 0, void 0,
 // Returns aggregated app-usage history for the last 7 or 30 days.
 // Today's live appUsage is merged under the current date key.
 router.get("/children/:childId/usage-history", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     try {
         const { childId } = req.params;
         const parentId = req.user.id;
@@ -139,7 +140,7 @@ router.get("/children/:childId/usage-history", (req, res) => __awaiter(void 0, v
         const period = rawPeriod === 30 ? 30 : 7;
         const { allowed } = yield subscription_service_1.subscriptionService.checkLimit(parentId, "advancedReports");
         if (!allowed) {
-            return response_1.ApiResponse.error(res, "Usage history reports require an Enterprise plan. Upgrade to access this feature.", 403);
+            return response_1.ApiResponse.error(res, "Usage history reports require a Premium Plus plan or higher. Upgrade to access this feature.", 403);
         }
         const child = yield childRepo.findOne({
             where: { id: childId, parent: { id: parentId } },
@@ -148,17 +149,21 @@ router.get("/children/:childId/usage-history", (req, res) => __awaiter(void 0, v
             return response_1.ApiResponse.error(res, "Child not found", 404);
         const history = typeof child.usageHistory === "object" && child.usageHistory
             ? Object.assign({}, child.usageHistory) : {};
-        // Merge today's live appUsage under today's date key
-        const todayKey = new Date().toISOString().slice(0, 10);
-        if (Array.isArray(child.appUsage) && child.appUsage.length > 0) {
-            history[todayKey] = child.appUsage;
+        // Merge today's live appUsage under today's date key using device-local timezone
+        // so the date matches the stored snapshot keys (which are also device-local).
+        const childTz = (_a = child.timezone) !== null && _a !== void 0 ? _a : null;
+        const todayKey = (0, child_service_1.deviceLocalDateString)(new Date(), childTz);
+        if (Array.isArray(child.appUsage)) {
+            const usedToday = child.appUsage.filter((a) => a.timeSpentMinutes > 0);
+            if (usedToday.length > 0)
+                history[todayKey] = usedToday;
         }
-        // Filter to the requested period
+        // Filter to the requested period using device-local dates
         const result = {};
         for (let i = 0; i < period; i++) {
-            const d = new Date();
-            d.setDate(d.getDate() - i);
-            const key = d.toISOString().slice(0, 10);
+            // Step back i days from today in device-local time by subtracting ms
+            const d = new Date(Date.now() - i * 86400000);
+            const key = (0, child_service_1.deviceLocalDateString)(d, childTz);
             if (history[key])
                 result[key] = history[key];
         }

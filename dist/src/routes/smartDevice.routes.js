@@ -48,7 +48,7 @@ router.get("/samsung/oauth-url", auth_1.protectParent, (req, res) => __awaiter(v
  */
 router.get("/samsung/oauth-callback", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { code, state } = req.query;
-    const websiteUrl = process.env.WEBSITE_URL || "http://localhost:3000";
+    const websiteUrl = process.env.WEBSITE_URL || "https://cylux.co";
     if (!code || !state) {
         return res.redirect(`${websiteUrl}/connect/samsung/error?msg=Missing+code+or+state`);
     }

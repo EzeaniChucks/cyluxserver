@@ -11,6 +11,41 @@ import { AlertService } from "./alert.service";
 
 const ALL_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+// ─── Timezone helpers ──────────────────────────────────────────────────────────
+// All date comparisons in the heartbeat pipeline use the device's local timezone
+// so that "midnight" and "today" match the child's actual day boundaries, not the
+// server's UTC clock. A UTC+8 device whose last heartbeat was at 11:59 pm (UTC+8)
+// should roll over at its local midnight, not 8 hours later at UTC midnight.
+
+/** Returns "YYYY-MM-DD" in the device's local timezone. Falls back to UTC. */
+export function deviceLocalDateString(date: Date, timezone?: string | null): string {
+  if (timezone) {
+    try {
+      // sv-SE locale produces ISO-style "YYYY-MM-DD" without any extra formatting.
+      return new Intl.DateTimeFormat('sv-SE', { timeZone: timezone }).format(date);
+    } catch { /* invalid IANA name — fall through */ }
+  }
+  return date.toISOString().slice(0, 10);
+}
+
+/** Returns minutes elapsed since device-local midnight (minimum 1). Falls back to UTC. */
+export function minutesSinceLocalMidnight(date: Date, timezone?: string | null): number {
+  if (timezone) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: false,
+      }).formatToParts(date);
+      const h = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10);
+      const m = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10);
+      return Math.max(1, h * 60 + m);
+    } catch { /* fall through */ }
+  }
+  return Math.max(1, date.getUTCHours() * 60 + date.getUTCMinutes());
+}
+
 const alertRepo = () => AppDataSource.getRepository(AlertEntity);
 
 const ALLOWED_COMMAND_TYPES = [
@@ -19,9 +54,15 @@ const ALLOWED_COMMAND_TYPES = [
   "PLAY_SIREN",
   "SYNC_POLICY",
   "WIPE_BROWSER",
+  "TAKE_SCREENSHOT",
   "REMOTE_WIPE",
   "REBOOT",
   "INVENTORY_SCAN",
+  "HIDE_ICON",
+  "SHOW_ICON",
+  "SET_PARENT_PIN",
+  "ENABLE_SETTINGS_GUARD",
+  "DISABLE_SETTINGS_GUARD",
 ] as const;
 
 export class ChildService {
@@ -140,8 +181,13 @@ export class ChildService {
       }
 
       // --- Daily reset (within the transaction lock) ---
-      const lastSeenDate = new Date(child.lastSeen).toDateString();
-      const currentDate = now.toDateString();
+      // Use device-local timezone for rollover detection so that "today" matches the
+      // child's actual day boundaries, not the server's UTC clock.
+      const deviceTz = (typeof data.timezone === 'string' && data.timezone)
+        ? data.timezone
+        : (child.timezone ?? null);
+      const lastSeenDate = deviceLocalDateString(new Date(child.lastSeen), deviceTz);
+      const currentDate = deviceLocalDateString(now, deviceTz);
 
       const dayRolledOver = lastSeenDate !== currentDate;
       if (dayRolledOver) {
@@ -191,9 +237,9 @@ export class ChildService {
       }
 
       // Snapshot yesterday's app usage into usageHistory before zeroing.
-      // Key format: YYYY-MM-DD (the date that just ended, i.e. lastSeenDate).
+      // Key format: YYYY-MM-DD in device-local time (the date that just ended).
       if (dayRolledOver && child.appUsage && (child.appUsage as any[]).length > 0) {
-        const snapshotDate = new Date(child.lastSeen).toISOString().slice(0, 10);
+        const snapshotDate = deviceLocalDateString(new Date(child.lastSeen), deviceTz);
         const history = typeof child.usageHistory === 'object' && child.usageHistory
           ? { ...child.usageHistory }
           : {};
@@ -209,21 +255,40 @@ export class ChildService {
           updates.usageHistory = history;
         }
 
-        // Zero out per-app usage. Apps in today's heartbeat will overwrite
-        // these zeros below; apps not used today correctly show 0 instead of yesterday's totals.
+        // Zero out per-app usage. The inventory-update block below will overwrite
+        // these with today's values; apps absent from today's heartbeat correctly stay at 0.
         updates.appUsage = (child.appUsage as any[]).map((app) => ({
           ...app,
           timeSpentMinutes: 0,
         }));
       }
 
+      // On day rollover the native Android "only-update-if-higher" SharedPreferences cache
+      // can carry yesterday's accumulated values into today's first heartbeat (the tracking
+      // service may have been killed overnight, so the midnight reset never fired).
+      // Cap every incoming value to the minutes actually elapsed since local midnight so
+      // that stale high values are truncated while legitimate low values are preserved.
+      let incomingAppUsage = data.appUsage as Record<string, number> | undefined;
+      if (dayRolledOver && incomingAppUsage && typeof incomingAppUsage === 'object') {
+        const capMinutes = minutesSinceLocalMidnight(now, deviceTz);
+        incomingAppUsage = Object.fromEntries(
+          Object.entries(incomingAppUsage).map(([pkg, mins]) => [
+            pkg,
+            Math.min(typeof mins === 'number' ? mins : 0, capMinutes),
+          ])
+        );
+      }
+
       // --- App inventory update ---
       // Handles two payload shapes:
       //   data.apps       — array format sent by future JS-layer integrations
       //   data.appUsage   — object map { packageName: minutes } sent by native MonitorService
+      //
+      // IMPORTANT: use updates.appUsage (already zeroed on rollover) as the base, NOT
+      // child.appUsage, so that apps absent from today's heartbeat don't carry yesterday's totals.
       if (data.apps && Array.isArray(data.apps)) {
         updates.lastInventoryScan = now;
-        const currentApps = child.appUsage || [];
+        const currentApps: any[] = (updates.appUsage as any[] | undefined) || child.appUsage || [];
         updates.appUsage = data.apps.map((app: any) => {
           const existing = currentApps.find(
             (ea) => ea.packageName === app.packageName || ea.name === app.name
@@ -236,10 +301,12 @@ export class ChildService {
             category: existing ? existing.category : "Uncategorized",
           };
         });
-      } else if (data.appUsage && typeof data.appUsage === 'object' && !Array.isArray(data.appUsage)) {
+      } else if (incomingAppUsage && typeof incomingAppUsage === 'object' && !Array.isArray(incomingAppUsage)) {
         updates.lastInventoryScan = now;
-        const currentApps: any[] = child.appUsage ? [...child.appUsage] : [];
-        for (const [packageName, minutes] of Object.entries(data.appUsage as Record<string, number>)) {
+        const currentApps: any[] = updates.appUsage
+          ? [...(updates.appUsage as any[])]
+          : (child.appUsage ? [...child.appUsage] : []);
+        for (const [packageName, minutes] of Object.entries(incomingAppUsage)) {
           if (typeof minutes !== 'number') continue;
           const idx = currentApps.findIndex((ea) => ea.packageName === packageName);
           if (idx >= 0) {
@@ -658,6 +725,42 @@ export class ChildService {
           console.warn(`[LogBatch] Rejected ${rejected.length} logs from unenrolled devices.`);
         }
         logs = logs.filter((l) => enrolledIds.has(l.childId));
+      }
+
+      if (logs.length === 0) return [];
+
+      // Dedup NOTIFICATION_RECEIVED within the batch (device-side debounce may have gaps)
+      const batchSeen = new Set<string>();
+      logs = logs.filter((l) => {
+        if (l.actionType === 'NOTIFICATION_RECEIVED' && l.details && l.childId) {
+          const key = `${l.childId}:${l.details}`;
+          if (batchSeen.has(key)) return false;
+          batchSeen.add(key);
+        }
+        return true;
+      });
+
+      // Drop NOTIFICATION_RECEIVED entries that already exist in the DB within the last 60 s
+      const notifLogs = logs.filter((l) => l.actionType === 'NOTIFICATION_RECEIVED' && l.details && l.childId);
+      if (notifLogs.length > 0) {
+        const sixtySecondsAgo = new Date(Date.now() - 60_000);
+        const logRepo = manager.getRepository(AuditLogEntity);
+        const existing = await logRepo.find({
+          where: notifLogs.map((l: any) => ({
+            childId: l.childId,
+            actionType: 'NOTIFICATION_RECEIVED',
+            details: l.details,
+            timestamp: MoreThan(sixtySecondsAgo),
+          })),
+          select: ['childId', 'details'],
+        });
+        const existingKeys = new Set(existing.map((e) => `${e.childId}:${e.details}`));
+        logs = logs.filter((l) => {
+          if (l.actionType === 'NOTIFICATION_RECEIVED' && l.details && l.childId) {
+            return !existingKeys.has(`${l.childId}:${l.details}`);
+          }
+          return true;
+        });
       }
 
       if (logs.length === 0) return [];

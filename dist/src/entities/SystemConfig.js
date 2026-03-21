@@ -29,15 +29,15 @@ __decorate([
 __decorate([
     (0, typeorm_1.Column)({ type: 'varchar', nullable: true, default: null }),
     __metadata("design:type", Object)
-], SystemConfigEntity.prototype, "geminiApiKey", void 0);
+], SystemConfigEntity.prototype, "claudeApiKey", void 0);
 __decorate([
     (0, typeorm_1.Column)({ type: 'varchar', default: 'unconfigured' }),
     __metadata("design:type", String)
-], SystemConfigEntity.prototype, "geminiKeyStatus", void 0);
+], SystemConfigEntity.prototype, "claudeKeyStatus", void 0);
 __decorate([
     (0, typeorm_1.Column)({ type: 'text', nullable: true, default: null }),
     __metadata("design:type", Object)
-], SystemConfigEntity.prototype, "geminiKeyLastError", void 0);
+], SystemConfigEntity.prototype, "claudeKeyLastError", void 0);
 __decorate([
     (0, typeorm_1.UpdateDateColumn)(),
     __metadata("design:type", Date)

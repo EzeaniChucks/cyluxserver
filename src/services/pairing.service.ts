@@ -110,7 +110,7 @@ export class PairingService {
     await emailService.send(
       parent.email,
       `Node Enrolled: ${pairing.childName}`,
-      `<p>Managed Node <b>${pairing.childName}</b> has successfully synchronized with the GuardianHub cluster using ${deviceType?.toUpperCase() || 'unknown'} protocol.</p>`
+      `<p>Managed Node <b>${pairing.childName}</b> has successfully synchronized with the Cylux platform using ${deviceType?.toUpperCase() || 'unknown'} protocol.</p>`
     );
 
     return { child, deviceToken };

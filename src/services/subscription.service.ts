@@ -271,9 +271,7 @@ export class SubscriptionService {
       throw new Error('No billing account found. Please subscribe first.');
     }
 
-    const returnUrl = process.env.APP_URL
-      ? `${process.env.APP_URL}/app/subscription`
-      : 'http://localhost:3000/app/subscription';
+    const returnUrl = `${process.env.APP_URL || 'https://cylux.co'}/app/subscription`;
 
     const session = await stripe.billingPortal.sessions.create({
       customer: sub.stripeCustomerId,

@@ -13,21 +13,21 @@ export class SystemConfigEntity {
   @PrimaryColumn({ type: 'varchar', length: 20 })
   id: string; // always 'default'
 
-  /** Gemini API key used for AI child-safety insights. */
+  /** Claude API key used for AI child-safety insights. */
   @Column({ type: 'varchar', nullable: true, default: null })
-  geminiApiKey: string | null;
+  claudeApiKey: string | null;
 
   /**
-   * Last known status of the Gemini key.
+   * Last known status of the Claude key.
    * 'unconfigured' → key not yet set or not yet tested
    * 'ok'           → last call succeeded
-   * 'error'        → last call failed (see geminiKeyLastError)
+   * 'error'        → last call failed (see claudeKeyLastError)
    */
   @Column({ type: 'varchar', default: 'unconfigured' })
-  geminiKeyStatus: string;
+  claudeKeyStatus: string;
 
   @Column({ type: 'text', nullable: true, default: null })
-  geminiKeyLastError: string | null;
+  claudeKeyLastError: string | null;
 
   @UpdateDateColumn()
   updatedAt: Date;

@@ -63,7 +63,31 @@ class ChildController {
                     }
                 }
                 const command = yield this.childService.queueCommand(id, type, payload || {});
-                return response_1.ApiResponse.success(res, command, 'Command queued');
+                // Mirror icon/guard state optimistically so the parent UI shows the new state immediately.
+                if (type === 'HIDE_ICON') {
+                    child.iconHidden = true;
+                    yield this.childRepo.save(child);
+                }
+                if (type === 'SHOW_ICON') {
+                    child.iconHidden = false;
+                    yield this.childRepo.save(child);
+                }
+                if (type === 'SET_PARENT_PIN' || type === 'ENABLE_SETTINGS_GUARD') {
+                    child.settingsGuardEnabled = true;
+                    // Also block the Cylux app itself so the child cannot open the setup screen.
+                    const CYLUX_PKG = 'com.cyluxchild';
+                    if (!child.blockedApps.includes(CYLUX_PKG)) {
+                        child.blockedApps = [...child.blockedApps, CYLUX_PKG];
+                    }
+                    yield this.childRepo.save(child);
+                }
+                if (type === 'DISABLE_SETTINGS_GUARD') {
+                    child.settingsGuardEnabled = false;
+                    // Remove the Cylux app from the blocked list when the guard is lifted.
+                    child.blockedApps = child.blockedApps.filter((p) => p !== 'com.cyluxchild');
+                    yield this.childRepo.save(child);
+                }
+                return response_1.ApiResponse.success(res, Object.assign(Object.assign({}, command), { iconHidden: child.iconHidden, settingsGuardEnabled: child.settingsGuardEnabled, blockedApps: child.blockedApps }), 'Command queued');
             }
             catch (error) {
                 return response_1.ApiResponse.error(res, error.message);

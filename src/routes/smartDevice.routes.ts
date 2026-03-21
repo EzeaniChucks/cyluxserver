@@ -45,7 +45,7 @@ router.get(
 router.get("/samsung/oauth-callback", async (req: any, res: any) => {
   const { code, state } = req.query as { code?: string; state?: string };
   const websiteUrl =
-    process.env.WEBSITE_URL || "http://localhost:3000";
+    process.env.WEBSITE_URL || "https://cylux.co";
 
   if (!code || !state) {
     return res.redirect(

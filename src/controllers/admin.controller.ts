@@ -326,9 +326,9 @@ export class AdminController {
       const config = await systemConfigService.getConfig();
       // Never expose the raw key — mask it
       return ApiResponse.success(res, {
-        geminiKeyConfigured: !!config.geminiApiKey,
-        geminiKeyStatus: config.geminiKeyStatus,
-        geminiKeyLastError: config.geminiKeyLastError,
+        claudeKeyConfigured: !!config.claudeApiKey,
+        claudeKeyStatus: config.claudeKeyStatus,
+        claudeKeyLastError: config.claudeKeyLastError,
         updatedAt: config.updatedAt,
       }, 'System config');
     } catch (err: any) {
@@ -338,8 +338,8 @@ export class AdminController {
 
   updateSystemConfig = async (req: any, res: any) => {
     try {
-      const { geminiApiKey } = req.body;
-      await systemConfigService.updateConfig({ geminiApiKey });
+      const { claudeApiKey } = req.body;
+      await systemConfigService.updateConfig({ claudeApiKey });
       return ApiResponse.success(res, null, 'System config updated');
     } catch (err: any) {
       return ApiResponse.error(res, err.message);
