@@ -8,7 +8,7 @@ const authController = new auth_controller_1.AuthController();
 router.post('/detect-locale', rateLimiter_1.authLimiter, authController.detectLocale);
 router.post('/register', rateLimiter_1.authLimiter, authController.register);
 router.post('/login', rateLimiter_1.authLimiter, authController.login);
-router.post('/refresh', authController.refresh);
+router.post('/refresh', rateLimiter_1.refreshLimiter, authController.refresh);
 router.post('/forgot-password', rateLimiter_1.authLimiter, authController.forgotPassword);
 router.post('/reset-password', rateLimiter_1.strictLimiter, authController.resetPassword);
 exports.default = router;

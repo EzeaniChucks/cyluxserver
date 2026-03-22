@@ -103,7 +103,7 @@ class AiController {
          * per child per day regardless of how many times a parent refreshes the page.
          */
         this.getInsights = (req, res) => __awaiter(this, void 0, void 0, function* () {
-            var _a, _b, _c;
+            var _a, _b, _c, _d, _e;
             const child = req.body;
             if (!child || typeof child !== 'object') {
                 return response_1.ApiResponse.error(res, 'Child data is required', 400);
@@ -112,16 +112,23 @@ class AiController {
             // changes so stale cached reports are automatically regenerated.
             const PROMPT_VERSION = 'v3';
             const today = `${new Date().toISOString().slice(0, 10)}-${PROMPT_VERSION}`; // YYYY-MM-DD-vN
-            // Serve cached report if it was generated today with the current prompt version
+            // Ownership check + cache lookup. Verify the requesting parent owns this child
+            // before reading or writing any cached report (prevents IDOR).
             if (child.id) {
                 try {
+                    const parentId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.id;
                     const childRepo = database_1.AppDataSource.getRepository(Child_1.ChildEntity);
-                    const childEntity = yield childRepo.findOne({ where: { id: child.id } });
-                    if ((childEntity === null || childEntity === void 0 ? void 0 : childEntity.aiReportDate) === today && (childEntity === null || childEntity === void 0 ? void 0 : childEntity.aiReport)) {
+                    const childEntity = yield childRepo.findOne({
+                        where: { id: child.id, parent: { id: parentId } },
+                    });
+                    if (!childEntity) {
+                        return response_1.ApiResponse.error(res, 'Child not found or unauthorized', 403);
+                    }
+                    if (childEntity.aiReportDate === today && childEntity.aiReport) {
                         return response_1.ApiResponse.success(res, childEntity.aiReport, 'AI insights (cached)');
                     }
                 }
-                catch (_d) {
+                catch (_f) {
                     // DB error — fall through and generate a fresh report
                 }
             }
@@ -144,7 +151,7 @@ class AiController {
                         'No explanation, no markdown, no code fences — only the raw JSON object.',
                     messages: [{ role: 'user', content: buildPrompt(child) }],
                 });
-                const text = ((_a = message.content[0]) === null || _a === void 0 ? void 0 : _a.type) === 'text' ? message.content[0].text : '';
+                const text = ((_b = message.content[0]) === null || _b === void 0 ? void 0 : _b.type) === 'text' ? message.content[0].text : '';
                 if (!text) {
                     const msg = 'No response from Claude';
                     yield system_config_service_1.systemConfigService.recordClaudeError(msg);
@@ -153,18 +160,20 @@ class AiController {
                 yield system_config_service_1.systemConfigService.recordClaudeSuccess();
                 const parsed = JSON.parse(text);
                 const report = {
-                    safetyScore: (_b = parsed.safetyScore) !== null && _b !== void 0 ? _b : 0,
-                    summary: (_c = parsed.summary) !== null && _c !== void 0 ? _c : '',
+                    safetyScore: (_c = parsed.safetyScore) !== null && _c !== void 0 ? _c : 0,
+                    summary: (_d = parsed.summary) !== null && _d !== void 0 ? _d : '',
                     risks: Array.isArray(parsed.risks) ? parsed.risks : [],
                     suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
                 };
-                // Persist report so subsequent requests today are served from cache
+                // Persist report so subsequent requests today are served from cache.
+                // Ownership was already verified above; use the same parent filter to be safe.
                 if (child.id) {
                     try {
+                        const parentId = (_e = req.user) === null || _e === void 0 ? void 0 : _e.id;
                         const childRepo = database_1.AppDataSource.getRepository(Child_1.ChildEntity);
-                        yield childRepo.update(child.id, { aiReport: report, aiReportDate: today });
+                        yield childRepo.update({ id: child.id, parent: { id: parentId } }, { aiReport: report, aiReportDate: today });
                     }
-                    catch (_e) {
+                    catch (_g) {
                         // Non-fatal — we still return the report to the parent
                     }
                 }

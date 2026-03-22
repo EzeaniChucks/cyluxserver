@@ -174,7 +174,11 @@ export class NotificationService {
     });
   }
 
-  async markAsRead(notificationId: string) {
-    await this.notificationRepo.update(notificationId, { isRead: true });
+  async markAsRead(notificationId: string, recipientId: string) {
+    // recipientId enforces ownership — only updates the row if it belongs to this parent
+    await this.notificationRepo.update(
+      { id: notificationId, recipientId },
+      { isRead: true },
+    );
   }
 }

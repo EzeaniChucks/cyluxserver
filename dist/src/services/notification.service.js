@@ -203,9 +203,10 @@ class NotificationService {
             });
         });
     }
-    markAsRead(notificationId) {
+    markAsRead(notificationId, recipientId) {
         return __awaiter(this, void 0, void 0, function* () {
-            yield this.notificationRepo.update(notificationId, { isRead: true });
+            // recipientId enforces ownership — only updates the row if it belongs to this parent
+            yield this.notificationRepo.update({ id: notificationId, recipientId }, { isRead: true });
         });
     }
 }

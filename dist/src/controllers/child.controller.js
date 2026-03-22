@@ -30,7 +30,9 @@ class ChildController {
         this.logRepo = database_1.AppDataSource.getRepository(AuditLog_1.AuditLogEntity);
         this.heartbeat = (req, res) => __awaiter(this, void 0, void 0, function* () {
             try {
-                const childId = req.params.childId || req.deviceId;
+                // Always use the device identity from the verified JWT — never the URL param,
+                // which could be spoofed to submit heartbeats on behalf of another device.
+                const childId = req.deviceId;
                 if (!childId)
                     return response_1.ApiResponse.error(res, 'Device context missing', 400);
                 const result = yield this.childService.processHeartbeat(childId, req.body);

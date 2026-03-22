@@ -62,10 +62,13 @@ router.get('/inbox', auth_1.protectParent, (req, res) => __awaiter(void 0, void 
         return response_1.ApiResponse.error(res, e.message);
     }
 }));
-// Fixed: Changed req type to any to avoid signature mismatch and property access errors
 router.patch('/:id/read', auth_1.protectParent, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     try {
-        yield notificationService.markAsRead(req.params.id);
+        const parentId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.id;
+        if (!parentId)
+            return response_1.ApiResponse.error(res, 'Unauthorized', 401);
+        yield notificationService.markAsRead(req.params.id, parentId);
         return response_1.ApiResponse.success(res, null, 'Marked as read');
     }
     catch (e) {

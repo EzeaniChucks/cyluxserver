@@ -21,7 +21,9 @@ export class ChildController {
 
   heartbeat = async (req: any, res: Response) => {
     try {
-      const childId = req.params.childId || req.deviceId;
+      // Always use the device identity from the verified JWT — never the URL param,
+      // which could be spoofed to submit heartbeats on behalf of another device.
+      const childId = req.deviceId;
       if (!childId) return ApiResponse.error(res, 'Device context missing', 400);
 
       const result = await this.childService.processHeartbeat(childId, req.body);

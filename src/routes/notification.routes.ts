@@ -52,10 +52,11 @@ router.get('/inbox', protectParent, async (req: any, res: Response) => {
     }
 });
 
-// Fixed: Changed req type to any to avoid signature mismatch and property access errors
 router.patch('/:id/read', protectParent, async (req: any, res: Response) => {
     try {
-        await notificationService.markAsRead(req.params.id);
+        const parentId = req.user?.id;
+        if (!parentId) return ApiResponse.error(res, 'Unauthorized', 401);
+        await notificationService.markAsRead(req.params.id, parentId);
         return ApiResponse.success(res, null, 'Marked as read');
     } catch (e: any) {
         return ApiResponse.error(res, e.message);

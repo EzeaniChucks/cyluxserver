@@ -136,9 +136,16 @@ export class ParentService {
     return { alerts, total, page, limit: safeLimit };
   }
 
-  async updateProfile(parentId: string, updates: Partial<ParentEntity>) {
-    const { id, passwordHash, email, failedLoginAttempts, lockedUntil, resetPasswordToken, resetPasswordExpires, ...allowedUpdates } = updates as any;
-    await this.parentRepo.update(parentId, allowedUpdates);
+  async updateProfile(parentId: string, updates: Record<string, any>) {
+    // Allowlist — only fields a parent is permitted to change via PATCH /api/parent/me
+    const allowedFields = ['name', 'phoneNumber', 'timezone', 'notificationPreferences', 'avatarUrl'];
+    const safeUpdates: Record<string, any> = {};
+    for (const field of allowedFields) {
+      if (field in updates) safeUpdates[field] = updates[field];
+    }
+    if (Object.keys(safeUpdates).length > 0) {
+      await this.parentRepo.update(parentId, safeUpdates);
+    }
     return this.getParentProfile(parentId);
   }
 }

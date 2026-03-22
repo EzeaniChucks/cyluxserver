@@ -159,8 +159,16 @@ class ParentService {
     }
     updateProfile(parentId, updates) {
         return __awaiter(this, void 0, void 0, function* () {
-            const _a = updates, { id, passwordHash, email, failedLoginAttempts, lockedUntil, resetPasswordToken, resetPasswordExpires } = _a, allowedUpdates = __rest(_a, ["id", "passwordHash", "email", "failedLoginAttempts", "lockedUntil", "resetPasswordToken", "resetPasswordExpires"]);
-            yield this.parentRepo.update(parentId, allowedUpdates);
+            // Allowlist — only fields a parent is permitted to change via PATCH /api/parent/me
+            const allowedFields = ['name', 'phoneNumber', 'timezone', 'notificationPreferences', 'avatarUrl'];
+            const safeUpdates = {};
+            for (const field of allowedFields) {
+                if (field in updates)
+                    safeUpdates[field] = updates[field];
+            }
+            if (Object.keys(safeUpdates).length > 0) {
+                yield this.parentRepo.update(parentId, safeUpdates);
+            }
             return this.getParentProfile(parentId);
         });
     }

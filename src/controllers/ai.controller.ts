@@ -112,12 +112,19 @@ export class AiController {
     const PROMPT_VERSION = 'v3';
     const today = `${new Date().toISOString().slice(0, 10)}-${PROMPT_VERSION}`; // YYYY-MM-DD-vN
 
-    // Serve cached report if it was generated today with the current prompt version
+    // Ownership check + cache lookup. Verify the requesting parent owns this child
+    // before reading or writing any cached report (prevents IDOR).
     if (child.id) {
       try {
+        const parentId = req.user?.id;
         const childRepo = AppDataSource.getRepository(ChildEntity);
-        const childEntity = await childRepo.findOne({ where: { id: child.id } });
-        if (childEntity?.aiReportDate === today && childEntity?.aiReport) {
+        const childEntity = await childRepo.findOne({
+          where: { id: child.id, parent: { id: parentId } as any },
+        });
+        if (!childEntity) {
+          return ApiResponse.error(res, 'Child not found or unauthorized', 403);
+        }
+        if (childEntity.aiReportDate === today && childEntity.aiReport) {
           return ApiResponse.success(res, childEntity.aiReport, 'AI insights (cached)');
         }
       } catch {
@@ -164,11 +171,16 @@ export class AiController {
         suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
       };
 
-      // Persist report so subsequent requests today are served from cache
+      // Persist report so subsequent requests today are served from cache.
+      // Ownership was already verified above; use the same parent filter to be safe.
       if (child.id) {
         try {
+          const parentId = req.user?.id;
           const childRepo = AppDataSource.getRepository(ChildEntity);
-          await childRepo.update(child.id, { aiReport: report, aiReportDate: today });
+          await childRepo.update(
+            { id: child.id, parent: { id: parentId } as any },
+            { aiReport: report, aiReportDate: today },
+          );
         } catch {
           // Non-fatal — we still return the report to the parent
         }

@@ -11,6 +11,14 @@ export class AdminController {
 
   seed = async (req: any, res: any) => {
     try {
+      // Require a server-side secret so this endpoint cannot be called by strangers.
+      // Set ADMIN_SEED_SECRET in .env before running the seed for the first time.
+      const seedSecret = process.env.ADMIN_SEED_SECRET;
+      if (!seedSecret) return ApiResponse.error(res, 'Seed endpoint is disabled (ADMIN_SEED_SECRET not configured)', 503);
+      if (req.headers['x-seed-secret'] !== seedSecret) {
+        return ApiResponse.error(res, 'Forbidden', 403);
+      }
+
       const { email, password, name } = req.body;
       if (!email || !password || !name) return ApiResponse.error(res, 'Missing fields', 400);
       const admin = await adminService.seedFirstAdmin({ email, password, name });

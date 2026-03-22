@@ -85,7 +85,7 @@ app.post("/api/wallet/connect/webhook", express_1.default.raw({ type: "applicati
     const sig = req.headers["stripe-signature"];
     const secret = process.env.STRIPE_WEBHOOK_SECRET_CONNECT;
     if (!secret)
-        return res.sendStatus(200); // Not configured — ignore
+        return res.status(400).send("Connect webhook secret not configured");
     let event;
     try {
         const Stripe = (yield Promise.resolve().then(() => __importStar(require("stripe")))).default;

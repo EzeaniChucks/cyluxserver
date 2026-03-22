@@ -30,6 +30,15 @@ export const pairingLimiter = rateLimit({
   message: { success: false, message: 'Too many pairing attempts. Wait before retrying.' },
 });
 
+// For token refresh: 30 attempts per 15 minutes per IP (generous but bounded)
+export const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many refresh attempts. Try again later.' },
+});
+
 // Global limiter applied to all /api/* routes: 200 requests per minute per IP
 export const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
