@@ -150,6 +150,20 @@ export class AlertService {
       }
     }
 
+    // Server-side dedup for SOCIAL_CONTENT: the in-device debounce uses a single
+    // "last content" slot per app — alternating videos on the TikTok scroll still
+    // slip through. Drop any SOCIAL_CONTENT that was already stored within 5 minutes.
+    if (data.actionType === 'SOCIAL_CONTENT' && data.details && data.childId) {
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60_000);
+      const duplicate = await this.logRepo.findOne({
+        where: { childId: data.childId, actionType: 'SOCIAL_CONTENT', details: data.details },
+        order: { timestamp: 'DESC' },
+      });
+      if (duplicate && duplicate.timestamp > fiveMinutesAgo) {
+        return null;
+      }
+    }
+
     // Verify child exists and is enrolled
     const child = await this.childRepo.findOne({
       where: { id: data.childId },
